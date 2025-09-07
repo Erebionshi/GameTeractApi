@@ -102,37 +102,111 @@ app.get("/users", async (req, res) => {
   }
 });
 
-
-// Game schema
+// Game schema - Updated for manual rank input (no enum restrictions)
 const gameSchema = new mongoose.Schema({
-  name: String,
-  image: String, // base64 string or URL
+  name: { 
+    type: String, 
+    required: true,
+    trim: true 
+  },
+  description: { 
+    type: String, 
+    required: true,
+    trim: true 
+  },
+  image: { 
+    type: String, 
+    required: true 
+  },
+  rank: { 
+    type: String, 
+    default: "Unranked",
+    required: true,
+    trim: true 
+  },
   createdAt: { type: Date, default: Date.now },
 });
+
+// Create indexes for better sorting
+gameSchema.index({ rank: 1, name: 1 });
 const Game = mongoose.model("Game", gameSchema);
 
-// Add game route
+// Add game route - Supports manual rank input
 app.post("/games", async (req, res) => {
   try {
-    const { name, image } = req.body;
-    if (!name || !image) {
-      return res.status(400).json({ success: false, message: "Name and image are required" });
+    const { name, description, image, rank = "Unranked" } = req.body;
+    
+    // Validate required fields
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ success: false, message: "Game name is required" });
+    }
+    if (!description || description.trim() === "") {
+      return res.status(400).json({ success: false, message: "Game description is required" });
+    }
+    if (!image) {
+      return res.status(400).json({ success: false, message: "Game image is required" });
+    }
+    if (!rank || rank.trim() === "") {
+      return res.status(400).json({ success: false, message: "Game rank is required" });
     }
 
-    const newGame = new Game({ name, image });
+    // Check for duplicate game names
+    const existingGame = await Game.findOne({ name: name.trim() });
+    if (existingGame) {
+      return res.status(400).json({ success: false, message: "Game with this name already exists" });
+    }
+
+    const newGame = new Game({ 
+      name: name.trim(),
+      description: description.trim(),
+      image,
+      rank: rank.trim()
+    });
+    
     await newGame.save();
-    res.json({ success: true, message: "Game added successfully", game: newGame });
+    console.log(`🎮 New game added: ${newGame.name} (${newGame.rank})`);
+    
+    res.json({ 
+      success: true, 
+      message: "Game added successfully", 
+      game: newGame 
+    });
   } catch (err) {
+    console.error("❌ Error adding game:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Fetch games
+// Fetch games - Sort alphabetically by rank (A-Z), then by name
 app.get("/games", async (req, res) => {
   try {
-    const games = await Game.find().sort({ createdAt: -1 });
+    const games = await Game.find().sort({ 
+      rank: 1, // Sort by rank alphabetically (A-Z)
+      name: 1  // Then by name if ranks are the same
+    }).select('-__v'); // Exclude __v field
+    
+    console.log(`📊 Fetched ${games.length} games, sorted by rank`);
+    
     res.json(games);
   } catch (err) {
+    console.error("❌ Error fetching games:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Get single game
+app.get("/games/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const game = await Game.findById(id);
+    
+    if (!game) {
+      return res.status(404).json({ success: false, message: "Game not found" });
+    }
+    
+    res.json({ success: true, game });
+  } catch (err) {
+    console.error("❌ Error fetching game:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -141,39 +215,158 @@ app.get("/games", async (req, res) => {
 app.delete("/games/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await Game.findByIdAndDelete(id);
-    if (!deleted) {
+    const deletedGame = await Game.findById(id);
+    
+    if (!deletedGame) {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
-    res.json({ success: true, message: "Game deleted successfully" });
+    
+    await Game.findByIdAndDelete(id);
+    console.log(`🗑️ Game deleted: ${deletedGame.name}`);
+    
+    res.json({ 
+      success: true, 
+      message: "Game deleted successfully",
+      deletedGameName: deletedGame.name 
+    });
   } catch (err) {
+    console.error("❌ Error deleting game:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Update game with rank (optional)
+// Update game rank - Accepts any string value
 app.put("/games/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { rank } = req.body;
-    if (!rank) {
-      return res.status(400).json({ success: false, message: "Rank is required" });
+    
+    if (!rank || rank.trim() === "") {
+      return res.status(400).json({ success: false, message: "Rank is required and cannot be empty" });
     }
 
     const updatedGame = await Game.findByIdAndUpdate(
       id,
-      { rank },
-      { new: true }
+      { 
+        rank: rank.trim(),
+        updatedAt: Date.now() // Add timestamp for updates
+      },
+      { 
+        new: true,
+        runValidators: true 
+      }
     );
 
     if (!updatedGame) {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
 
-    res.json({ success: true, message: "Rank updated successfully", game: updatedGame });
+    console.log(`🔄 Game rank updated: ${updatedGame.name} -> ${updatedGame.rank}`);
+    
+    res.json({ 
+      success: true, 
+      message: "Rank updated successfully", 
+      game: updatedGame 
+    });
   } catch (err) {
+    console.error("❌ Error updating game rank:", err);
     res.status(500).json({ success: false, message: err.message });
   }
+});
+
+// Update game (full update - name, description, image, rank)
+app.put("/games/:id/full", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, image, rank } = req.body;
+    
+    // Validate required fields
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ success: false, message: "Game name is required" });
+    }
+    if (!description || description.trim() === "") {
+      return res.status(400).json({ success: false, message: "Game description is required" });
+    }
+    if (!image) {
+      return res.status(400).json({ success: false, message: "Game image is required" });
+    }
+    if (!rank || rank.trim() === "") {
+      return res.status(400).json({ success: false, message: "Game rank is required" });
+    }
+
+    // Check for duplicate game names (excluding current game)
+    const existingGame = await Game.findOne({ 
+      name: name.trim(),
+      _id: { $ne: id }
+    });
+    if (existingGame) {
+      return res.status(400).json({ success: false, message: "Game with this name already exists" });
+    }
+
+    const updatedGame = await Game.findByIdAndUpdate(
+      id,
+      { 
+        name: name.trim(),
+        description: description.trim(),
+        image,
+        rank: rank.trim(),
+        updatedAt: Date.now()
+      },
+      { 
+        new: true,
+        runValidators: true 
+      }
+    );
+
+    if (!updatedGame) {
+      return res.status(404).json({ success: false, message: "Game not found" });
+    }
+
+    console.log(`🔄 Game fully updated: ${updatedGame.name} (${updatedGame.rank})`);
+    
+    res.json({ 
+      success: true, 
+      message: "Game updated successfully", 
+      game: updatedGame 
+    });
+  } catch (err) {
+    console.error("❌ Error updating game:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Search games by name or rank
+app.get("/games/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({ success: false, message: "Search query is required" });
+    }
+
+    const searchTerm = q.trim().toLowerCase();
+    const games = await Game.find({
+      $or: [
+        { name: { $regex: searchTerm, $options: 'i' } },
+        { rank: { $regex: searchTerm, $options: 'i' } },
+        { description: { $regex: searchTerm, $options: 'i' } }
+      ]
+    }).sort({ rank: 1, name: 1 }).limit(20);
+
+    res.json({ success: true, games, count: games.length });
+  } catch (err) {
+    console.error("❌ Error searching games:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ 
+    success: true, 
+    message: "API is healthy", 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
 // Change root response to styled HTML
@@ -199,6 +392,7 @@ app.get("/", (req, res) => {
             border-radius: 12px;
             display: inline-block;
             margin-top: 20px;
+            max-width: 600px;
           }
           p {
             margin: 5px 0;
@@ -207,6 +401,26 @@ app.get("/", (req, res) => {
             color: #4ade80;
             font-weight: bold;
           }
+          .routes {
+            text-align: left;
+            margin: 20px 0;
+          }
+          .routes ul {
+            list-style: none;
+            padding: 0;
+          }
+          .routes li {
+            margin: 10px 0;
+            padding: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 6px;
+          }
+          code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #6b48ff;
+          }
         </style>
       </head>
       <body>
@@ -214,19 +428,71 @@ app.get("/", (req, res) => {
         <div class="card">
           <p class="status">✅ Backend is running!</p>
           <p>MongoDB connected successfully</p>
+          <p>Server Uptime: <span id="uptime"></span> seconds</p>
           <p>Available Routes:</p>
-          <ul style="list-style:none;padding:0;">
-            <li>🔹 <code>/users</code></li>
-            <li>🔹 <code>/games</code></li>
-            <li>🔹 <code>/signup</code></li>
-            <li>🔹 <code>/login</code></li>
-          </ul>
+          <div class="routes">
+            <ul>
+              <li>🔹 <code>GET /users</code> - Fetch all users</li>
+              <li>🔹 <code>GET /games</code> - Fetch all games (sorted by rank)</li>
+              <li>🔹 <code>GET /games/:id</code> - Get single game</li>
+              <li>🔹 <code>POST /games</code> - Add new game</li>
+              <li>🔹 <code>PUT /games/:id</code> - Update game rank</li>
+              <li>🔹 <code>PUT /games/:id/full</code> - Full game update</li>
+              <li>🔹 <code>DELETE /games/:id</code> - Delete game</li>
+              <li>🔹 <code>GET /games/search?q=term</code> - Search games</li>
+              <li>🔹 <code>POST /signup</code> - User registration</li>
+              <li>🔹 <code>POST /login</code> - User login</li>
+              <li>🔹 <code>GET /health</code> - Health check</li>
+            </ul>
+          </div>
+          <p><strong>Game Ranks:</strong> Supports manual input (Iron 1, Silver 3, Radiant, etc.)</p>
         </div>
+        <script>
+          document.getElementById('uptime').textContent = Math.floor(process.uptime());
+        </script>
       </body>
     </html>
   `);
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("❌ Unhandled error:", err.stack);
+  res.status(500).json({ 
+    success: false, 
+    message: "Something went wrong!",
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined 
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    message: "Route not found",
+    path: req.originalUrl 
+  });
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🌐 API available at http://localhost:${PORT}`);
+  console.log(`📱 Test the API at http://localhost:${PORT}/`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully');
+  mongoose.connection.close(() => {
+    console.log('✅ MongoDB connection closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully');
+  mongoose.connection.close(() => {
+    console.log('✅ MongoDB connection closed');
+    process.exit(0);
+  });
 });
