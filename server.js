@@ -102,6 +102,42 @@ app.get("/users", async (req, res) => {
   }
 });
 
+
+// Game schema
+const gameSchema = new mongoose.Schema({
+  name: String,
+  image: String, // base64 string or URL
+  createdAt: { type: Date, default: Date.now },
+});
+const Game = mongoose.model("Game", gameSchema);
+
+// Add game route
+app.post("/games", async (req, res) => {
+  try {
+    const { name, image } = req.body;
+    if (!name || !image) {
+      return res.status(400).json({ success: false, message: "Name and image are required" });
+    }
+
+    const newGame = new Game({ name, image });
+    await newGame.save();
+    res.json({ success: true, message: "Game added successfully", game: newGame });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Fetch games
+app.get("/games", async (req, res) => {
+  try {
+    const games = await Game.find().sort({ createdAt: -1 });
+    res.json(games);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
 // Test route
 app.get("/", (req, res) => {
   res.send("Backend running!");
