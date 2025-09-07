@@ -137,10 +137,94 @@ app.get("/games", async (req, res) => {
   }
 });
 
+// Delete game
+app.delete("/games/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Game.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: "Game not found" });
+    }
+    res.json({ success: true, message: "Game deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
-// Test route
+// Update game with rank (optional)
+app.put("/games/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rank } = req.body;
+    if (!rank) {
+      return res.status(400).json({ success: false, message: "Rank is required" });
+    }
+
+    const updatedGame = await Game.findByIdAndUpdate(
+      id,
+      { rank },
+      { new: true }
+    );
+
+    if (!updatedGame) {
+      return res.status(404).json({ success: false, message: "Game not found" });
+    }
+
+    res.json({ success: true, message: "Rank updated successfully", game: updatedGame });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Change root response to styled HTML
 app.get("/", (req, res) => {
-  res.send("Backend running!");
+  res.send(`
+    <html>
+      <head>
+        <title>GameTeract API</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0c1325, #1a2238);
+            color: white;
+            text-align: center;
+            padding: 50px;
+          }
+          h1 {
+            color: #6b48ff;
+          }
+          .card {
+            background: #273469;
+            padding: 20px;
+            border-radius: 12px;
+            display: inline-block;
+            margin-top: 20px;
+          }
+          p {
+            margin: 5px 0;
+          }
+          .status {
+            color: #4ade80;
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>🚀 GameTeract API</h1>
+        <div class="card">
+          <p class="status">✅ Backend is running!</p>
+          <p>MongoDB connected successfully</p>
+          <p>Available Routes:</p>
+          <ul style="list-style:none;padding:0;">
+            <li>🔹 <code>/users</code></li>
+            <li>🔹 <code>/games</code></li>
+            <li>🔹 <code>/signup</code></li>
+            <li>🔹 <code>/login</code></li>
+          </ul>
+        </div>
+      </body>
+    </html>
+  `);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
