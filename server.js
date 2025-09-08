@@ -24,13 +24,16 @@ const userSchema = new mongoose.Schema({
   username: String,
   email: { type: String, unique: true },
   password: String,
-  profilePic: String, // store image as base64 URL or link
+  profilePic: String,
   games: {
-    valorant: { id: String, rank: String },
-    dota: { id: String, rank: String },
-    csgo: { id: String, rank: String },
-  },
+    type: Map,
+    of: {
+      ign: { type: String, default: "" },
+      rank: { type: String, default: "Unranked" }
+    }
+  }
 });
+
 const User = mongoose.model("User", userSchema);
 
 // Signup route
