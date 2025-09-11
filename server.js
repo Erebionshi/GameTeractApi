@@ -13,7 +13,7 @@ app.use(express.json({ limit: "10mb" })); // Increase limit to handle profile pi
 // Environment variables
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
 
@@ -57,7 +57,7 @@ const gameSchema = new mongoose.Schema({
 gameSchema.index({ rank: 1, name: 1 });
 const Game = mongoose.model("Game", gameSchema);
 
-// Middleware to verify JWT (for protected routes)
+// Middleware to verify JWT (kept for protected routes, but not used for /users or /users/:id)
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -134,8 +134,8 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// Fetch all users (Admin route, protected)
-app.get("/users", authenticateToken, async (req, res) => {
+// Fetch all users (no authentication required)
+app.get("/users", async (req, res) => {
   try {
     const users = await User.find({}, "username email profilePic games violations banned banDuration");
 
@@ -158,8 +158,8 @@ app.get("/users", authenticateToken, async (req, res) => {
   }
 });
 
-// Update user (for ban, violations, etc.)
-app.put("/users/:id", authenticateToken, async (req, res) => {
+// Update user (for ban, violations, etc., no authentication required)
+app.put("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { banned, banDuration, violations } = req.body;
@@ -515,8 +515,8 @@ app.get("/", (req, res) => {
           <p>Available Routes:</p>
           <div class="routes">
             <ul>
-              <li>🔹 <code>GET /users</code> - Fetch all users (protected)</li>
-              <li>🔹 <code>PUT /users/:id</code> - Update user (protected)</li>
+              <li>🔹 <code>GET /users</code> - Fetch all users</li>
+              <li>🔹 <code>PUT /users/:id</code> - Update user</li>
               <li>🔹 <code>GET /games</code> - Fetch all games</li>
               <li>🔹 <code>GET /games/:id</code> - Get single game</li>
               <li>🔹 <code>POST /games</code> - Add new game</li>
