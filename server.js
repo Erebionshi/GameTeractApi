@@ -31,6 +31,7 @@ const userSchema = new mongoose.Schema({
   violations: { type: Number, default: 0 },
   banned: { type: Boolean, default: false },
   banDuration: { type: Number, default: 0 }, // Days, 0 for permanent
+  banStartDate: { type: Date, default: null }, // Track when ban was issued
   games: {
     type: Map,
     of: {
@@ -57,7 +58,7 @@ const gameSchema = new mongoose.Schema({
 gameSchema.index({ rank: 1, name: 1 });
 const Game = mongoose.model("Game", gameSchema);
 
-// Middleware to verify JWT (kept for protected routes, but not used for /users or /users/:id)
+// Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -92,7 +93,8 @@ app.post("/signup", async (req, res) => {
       games: games || {},
       violations: 0,
       banned: false,
-      banDuration: 0
+      banDuration: 0,
+      banStartDate: null
     });
     await user.save();
 
@@ -118,10 +120,34 @@ app.post("/login", async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
-    if (user.banned) {
+    // Check if user is banned and if ban has expired
+    if (user.banned && user.banDuration > 0 && user.banStartDate) {
+      const currentDate = new Date();
+      const banEndDate = new Date(user.banStartDate);
+      banEndDate.setDate(banEndDate.getDate() + user.banDuration);
+
+      if (currentDate >= banEndDate) {
+        // Ban has expired, update user
+        user.banned = false;
+        user.banDuration = 0;
+        user.banStartDate = null;
+        await user.save();
+        console.log(`🔓 Ban expired for user: ${user.email}`);
+      } else {
+        return res.status(403).json({
+          success: false,
+          message: `User is banned for ${user.banDuration} days`,
+          banDuration: user.banDuration,
+          violations: user.violations
+        });
+      }
+    } else if (user.banned && user.banDuration === 0) {
+      // Permanent ban
       return res.status(403).json({
         success: false,
-        message: `User is banned ${user.banDuration === 0 ? "permanently" : `for ${user.banDuration} days`}`
+        message: "User is permanently banned",
+        banDuration: user.banDuration,
+        violations: user.violations
       });
     }
 
@@ -134,10 +160,10 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// Fetch all users (no authentication required)
+// Fetch all users
 app.get("/users", async (req, res) => {
   try {
-    const users = await User.find({}, "username email profilePic games violations banned banDuration");
+    const users = await User.find({}, "username email profilePic games violations banned banDuration banStartDate");
 
     const usersWithDefaults = users.map(user => ({
       _id: user._id,
@@ -148,6 +174,7 @@ app.get("/users", async (req, res) => {
       violations: user.violations || 0,
       banned: user.banned || false,
       banDuration: user.banDuration || 0,
+      banStartDate: user.banStartDate || null
     }));
 
     console.log("📌 Users fetched from DB:", usersWithDefaults);
@@ -158,7 +185,7 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// Update user (for ban, violations, etc., no authentication required)
+// Update user
 app.put("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -168,6 +195,7 @@ app.put("/users/:id", async (req, res) => {
     if (banned !== undefined) updateData.banned = banned;
     if (banDuration !== undefined) updateData.banDuration = banDuration;
     if (violations !== undefined) updateData.violations = violations;
+    if (banned && banDuration !== undefined) updateData.banStartDate = new Date(); // Set ban start date when banning
 
     const updatedUser = await User.findByIdAndUpdate(
       id,
@@ -224,7 +252,6 @@ app.post("/games", async (req, res) => {
   try {
     const { name, description, image, rank = "Unranked" } = req.body;
 
-    // Validate required fields
     if (!name || name.trim() === "") {
       return res.status(400).json({ success: false, message: "Game name is required" });
     }
@@ -238,7 +265,6 @@ app.post("/games", async (req, res) => {
       return res.status(400).json({ success: false, message: "Game rank is required" });
     }
 
-    // Check for duplicate game names
     const existingGame = await Game.findOne({ name: name.trim() });
     if (existingGame) {
       return res.status(400).json({ success: false, message: "Game with this name already exists" });
@@ -268,9 +294,9 @@ app.post("/games", async (req, res) => {
 app.get("/games", async (req, res) => {
   try {
     const games = await Game.find().sort({
-      rank: 1, // Sort by rank alphabetically (A-Z)
-      name: 1  // Then by name if ranks are the same
-    }).select('-__v'); // Exclude __v field
+      rank: 1,
+      name: 1
+    }).select('-__v');
 
     console.log(`📊 Fetched ${games.length} games, sorted by rank`);
     res.json(games);
@@ -364,7 +390,6 @@ app.put("/games/:id/full", async (req, res) => {
     const { id } = req.params;
     const { name, description, image, rank } = req.body;
 
-    // Validate required fields
     if (!name || name.trim() === "") {
       return res.status(400).json({ success: false, message: "Game name is required" });
     }
@@ -378,7 +403,6 @@ app.put("/games/:id/full", async (req, res) => {
       return res.status(400).json({ success: false, message: "Game rank is required" });
     }
 
-    // Check for duplicate game names (excluding current game)
     const existingGame = await Game.findOne({
       name: name.trim(),
       _id: { $ne: id }
