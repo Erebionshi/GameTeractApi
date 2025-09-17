@@ -442,6 +442,21 @@ app.put("/games/:id/full", async (req, res) => {
   }
 });
 
+// Protected endpoint to fetch PandaScore API key
+app.get("/api-key", authenticateToken, (req, res) => {
+  try {
+    const apiKey = process.env.PANDASCORE_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ success: false, message: "PandaScore API key not configured on server" });
+    }
+    console.log(`🔑 API key requested by user: ${req.user.email}`);
+    res.json({ success: true, apiKey });
+  } catch (err) {
+    console.error("❌ Error fetching API key:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Search games by name or rank
 app.get("/games/search", async (req, res) => {
   try {
