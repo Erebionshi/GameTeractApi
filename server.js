@@ -1,446 +1,27 @@
-require("dotenv").config(); // Load .env
+require("dotenv").config();
 const express = require("express");
-const mongoose = require("mongoose");
 const cors = require("cors");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+const connectDB = require("./src/config/db");
+const authRoutes = require("./src/routes/auth");
+const userRoutes = require("./src/routes/users");
+const gameRoutes = require("./src/routes/games");
+const emailRoutes = require("./src/routes/email");
+const { authenticateToken } = require("./src/middleware/auth");
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: "10mb" })); // Increase limit to handle profile pic base64
-
-// Environment variables
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI;
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
+
+app.use(cors());
+app.use(express.json({ limit: "10mb" }));
 
 // Connect to MongoDB
-mongoose.connect(MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => console.error("❌ Mongo Error:", err));
+connectDB();
 
-// User schema
-const userSchema = new mongoose.Schema({
-  username: { type: String, trim: true },
-  email: { type: String, unique: true, required: true, trim: true },
-  password: { type: String, required: true },
-  profilePic: { type: String, default: null },
-  violations: { type: Number, default: 0 },
-  banned: { type: Boolean, default: false },
-  banDuration: { type: Number, default: 0 }, // Days, 0 for permanent
-  banStartDate: { type: Date, default: null }, // Track when ban was issued
-  games: {
-    type: Map,
-    of: {
-      ign: { type: String, default: "", trim: true },
-      rank: { type: String, default: "Unranked", trim: true }
-    }
-  }
-});
-
-// Create indexes for better querying
-userSchema.index({ email: 1 });
-const User = mongoose.model("User", userSchema);
-
-// Game schema
-const gameSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  description: { type: String, required: true, trim: true },
-  image: { type: String, required: true },
-  rank: { type: String, default: "Unranked", required: true, trim: true },
-  createdAt: { type: Date, default: Date.now },
-});
-
-// Create indexes for better sorting
-gameSchema.index({ rank: 1, name: 1 });
-const Game = mongoose.model("Game", gameSchema);
-
-// Middleware to verify JWT
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ success: false, message: "Token required" });
-  }
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ success: false, message: "Invalid token" });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// Signup route
-app.post("/signup", async (req, res) => {
-  try {
-    const { username, email, password, profilePic, games } = req.body;
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: "Email already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({
-      username: username?.trim() || undefined,
-      email: email.trim(),
-      password: hashedPassword,
-      profilePic: profilePic || null,
-      games: games || {},
-      violations: 0,
-      banned: false,
-      banDuration: 0,
-      banStartDate: null
-    });
-    await user.save();
-
-    console.log(`🆕 New user registered: ${user.email}`);
-    res.json({ success: true, message: "User registered successfully" });
-  } catch (err) {
-    console.error("❌ Error in signup:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Login route
-app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ success: false, message: "User not found" });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ success: false, message: "Invalid credentials" });
-    }
-
-    // Check if user is banned and if ban has expired
-    if (user.banned && user.banDuration > 0 && user.banStartDate) {
-      const currentDate = new Date();
-      const banEndDate = new Date(user.banStartDate);
-      banEndDate.setDate(banEndDate.getDate() + user.banDuration);
-
-      if (currentDate >= banEndDate) {
-        // Ban has expired, update user
-        user.banned = false;
-        user.banDuration = 0;
-        user.banStartDate = null;
-        await user.save();
-        console.log(`🔓 Ban expired for user: ${user.email}`);
-      } else {
-        return res.status(403).json({
-          success: false,
-          message: `User is banned for ${user.banDuration} days`,
-          banDuration: user.banDuration,
-          violations: user.violations
-        });
-      }
-    } else if (user.banned && user.banDuration === 0) {
-      // Permanent ban
-      return res.status(403).json({
-        success: false,
-        message: "User is permanently banned",
-        banDuration: user.banDuration,
-        violations: user.violations
-      });
-    }
-
-    const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, { expiresIn: "1h" });
-    console.log(`🔐 User logged in: ${user.email}`);
-    res.json({ success: true, token });
-  } catch (err) {
-    console.error("❌ Error in login:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Fetch all users
-app.get("/users", async (req, res) => {
-  try {
-    const users = await User.find({}, "username email profilePic games violations banned banDuration banStartDate");
-
-    const usersWithDefaults = users.map(user => ({
-      _id: user._id,
-      username: user.username || "Unknown",
-      email: user.email,
-      profilePic: user.profilePic || null,
-      games: user.games || {},
-      violations: user.violations || 0,
-      banned: user.banned || false,
-      banDuration: user.banDuration || 0,
-      banStartDate: user.banStartDate || null
-    }));
-
-    console.log("📌 Users fetched from DB:", usersWithDefaults);
-    res.json(usersWithDefaults);
-  } catch (err) {
-    console.error("❌ Error fetching users:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Update user
-app.put("/users/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { banned, banDuration, violations } = req.body;
-
-    const updateData = {};
-    if (banned !== undefined) updateData.banned = banned;
-    if (banDuration !== undefined) updateData.banDuration = banDuration;
-    if (violations !== undefined) updateData.violations = violations;
-    if (banned && banDuration !== undefined) updateData.banStartDate = new Date(); // Set ban start date when banning
-
-    const updatedUser = await User.findByIdAndUpdate(
-      id,
-      { ...updateData, updatedAt: Date.now() },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedUser) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    console.log(`🔄 User updated: ${updatedUser.email} (banned: ${updatedUser.banned}, banDuration: ${updatedUser.banDuration})`);
-    res.json({ success: true, user: updatedUser });
-  } catch (err) {
-    console.error("❌ Error updating user:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Send email
-app.post("/send-email", async (req, res) => {
-  const { email, message } = req.body;
-  if (!email || !message) {
-    return res.status(400).json({ success: false, message: "Email and message are required" });
-  }
-
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: EMAIL_USER,
-      pass: EMAIL_PASS
-    }
-  });
-
-  const mailOptions = {
-    from: EMAIL_USER,
-    to: email,
-    subject: "Violation Notification from GameTeract",
-    text: message
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`📧 Email sent to: ${email}`);
-    res.json({ success: true, message: "Email sent successfully" });
-  } catch (err) {
-    console.error("❌ Error sending email:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Add game route
-app.post("/games", async (req, res) => {
-  try {
-    const { name, description, image, rank = "Unranked" } = req.body;
-
-    if (!name || name.trim() === "") {
-      return res.status(400).json({ success: false, message: "Game name is required" });
-    }
-    if (!description || description.trim() === "") {
-      return res.status(400).json({ success: false, message: "Game description is required" });
-    }
-    if (!image) {
-      return res.status(400).json({ success: false, message: "Game image is required" });
-    }
-    if (!rank || rank.trim() === "") {
-      return res.status(400).json({ success: false, message: "Game rank is required" });
-    }
-
-    const existingGame = await Game.findOne({ name: name.trim() });
-    if (existingGame) {
-      return res.status(400).json({ success: false, message: "Game with this name already exists" });
-    }
-
-    const newGame = new Game({
-      name: name.trim(),
-      description: description.trim(),
-      image,
-      rank: rank.trim()
-    });
-
-    await newGame.save();
-    console.log(`🎮 New game added: ${newGame.name} (${newGame.rank})`);
-    res.json({
-      success: true,
-      message: "Game added successfully",
-      game: newGame
-    });
-  } catch (err) {
-    console.error("❌ Error adding game:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Fetch games
-app.get("/games", async (req, res) => {
-  try {
-    const games = await Game.find().sort({
-      rank: 1,
-      name: 1
-    }).select('-__v');
-
-    console.log(`📊 Fetched ${games.length} games, sorted by rank`);
-    res.json(games);
-  } catch (err) {
-    console.error("❌ Error fetching games:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Get single game
-app.get("/games/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const game = await Game.findById(id);
-
-    if (!game) {
-      return res.status(404).json({ success: false, message: "Game not found" });
-    }
-
-    res.json({ success: true, game });
-  } catch (err) {
-    console.error("❌ Error fetching game:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Delete game
-app.delete("/games/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const deletedGame = await Game.findById(id);
-
-    if (!deletedGame) {
-      return res.status(404).json({ success: false, message: "Game not found" });
-    }
-
-    await Game.findByIdAndDelete(id);
-    console.log(`🗑️ Game deleted: ${deletedGame.name}`);
-    res.json({
-      success: true,
-      message: "Game deleted successfully",
-      deletedGameName: deletedGame.name
-    });
-  } catch (err) {
-    console.error("❌ Error deleting game:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Update game rank
-app.put("/games/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { rank } = req.body;
-
-    if (!rank || rank.trim() === "") {
-      return res.status(400).json({ success: false, message: "Rank is required and cannot be empty" });
-    }
-
-    const updatedGame = await Game.findByIdAndUpdate(
-      id,
-      {
-        rank: rank.trim(),
-        updatedAt: Date.now()
-      },
-      {
-        new: true,
-        runValidators: true
-      }
-    );
-
-    if (!updatedGame) {
-      return res.status(404).json({ success: false, message: "Game not found" });
-    }
-
-    console.log(`🔄 Game rank updated: ${updatedGame.name} -> ${updatedGame.rank}`);
-    res.json({
-      success: true,
-      message: "Rank updated successfully",
-      game: updatedGame
-    });
-  } catch (err) {
-    console.error("❌ Error updating game rank:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Update game (full update)
-app.put("/games/:id/full", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, description, image, rank } = req.body;
-
-    if (!name || name.trim() === "") {
-      return res.status(400).json({ success: false, message: "Game name is required" });
-    }
-    if (!description || description.trim() === "") {
-      return res.status(400).json({ success: false, message: "Game description is required" });
-    }
-    if (!image) {
-      return res.status(400).json({ success: false, message: "Game image is required" });
-    }
-    if (!rank || rank.trim() === "") {
-      return res.status(400).json({ success: false, message: "Game rank is required" });
-    }
-
-    const existingGame = await Game.findOne({
-      name: name.trim(),
-      _id: { $ne: id }
-    });
-    if (existingGame) {
-      return res.status(400).json({ success: false, message: "Game with this name already exists" });
-    }
-
-    const updatedGame = await Game.findByIdAndUpdate(
-      id,
-      {
-        name: name.trim(),
-        description: description.trim(),
-        image,
-        rank: rank.trim(),
-        updatedAt: Date.now()
-      },
-      {
-        new: true,
-        runValidators: true
-      }
-    );
-
-    if (!updatedGame) {
-      return res.status(404).json({ success: false, message: "Game not found" });
-    }
-
-    console.log(`🔄 Game fully updated: ${updatedGame.name} (${updatedGame.rank})`);
-    res.json({
-      success: true,
-      message: "Game updated successfully",
-      game: updatedGame
-    });
-  } catch (err) {
-    console.error("❌ Error updating game:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+// Routes
+app.use("/auth", authRoutes); // Fixed path
+app.use("/users", userRoutes); // Fixed path
+app.use("/games", gameRoutes); // Fixed path
+app.use("/email", emailRoutes); // Fixed path
 
 // Protected endpoint to fetch PandaScore API key
 app.get("/api-key", authenticateToken, (req, res) => {
@@ -457,37 +38,13 @@ app.get("/api-key", authenticateToken, (req, res) => {
   }
 });
 
-// Search games by name or rank
-app.get("/games/search", async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q || typeof q !== 'string') {
-      return res.status(400).json({ success: false, message: "Search query is required" });
-    }
-
-    const searchTerm = q.trim().toLowerCase();
-    const games = await Game.find({
-      $or: [
-        { name: { $regex: searchTerm, $options: 'i' } },
-        { rank: { $regex: searchTerm, $options: 'i' } },
-        { description: { $regex: searchTerm, $options: 'i' } }
-      ]
-    }).sort({ rank: 1, name: 1 }).limit(20);
-
-    res.json({ success: true, games, count: games.length });
-  } catch (err) {
-    console.error("❌ Error searching games:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Health check endpoint
+// Health check
 app.get("/health", (req, res) => {
   res.json({
     success: true,
     message: "API is healthy",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
   });
 });
 
@@ -498,51 +55,15 @@ app.get("/", (req, res) => {
       <head>
         <title>GameTeract API</title>
         <style>
-          body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #0c1325, #1a2238);
-            color: white;
-            text-align: center;
-            padding: 50px;
-          }
-          h1 {
-            color: #6b48ff;
-          }
-          .card {
-            background: #273469;
-            padding: 20px;
-            border-radius: 12px;
-            display: inline-block;
-            margin-top: 20px;
-            max-width: 600px;
-          }
-          p {
-            margin: 5px 0;
-          }
-          .status {
-            color: #4ade80;
-            font-weight: bold;
-          }
-          .routes {
-            text-align: left;
-            margin: 20px 0;
-          }
-          .routes ul {
-            list-style: none;
-            padding: 0;
-          }
-          .routes li {
-            margin: 10px 0;
-            padding: 8px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 6px;
-          }
-          code {
-            background: rgba(0,0,0,0.3);
-            padding: 2px 6px;
-            border-radius: 4px;
-            color: #6b48ff;
-          }
+          body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #0c1325, #1a2238); color: white; text-align: center; padding: 50px; }
+          h1 { color: #6b48ff; }
+          .card { background: #273469; padding: 20px; border-radius: 12px; display: inline-block; margin-top: 20px; max-width: 600px; }
+          p { margin: 5px 0; }
+          .status { color: #4ade80; font-weight: bold; }
+          .routes { text-align: left; margin: 20px 0; }
+          .routes ul { list-style: none; padding: 0; }
+          .routes li { margin: 10px 0; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 6px; }
+          code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #6b48ff; }
         </style>
       </head>
       <body>
@@ -556,17 +77,18 @@ app.get("/", (req, res) => {
             <ul>
               <li>🔹 <code>GET /users</code> - Fetch all users</li>
               <li>🔹 <code>PUT /users/:id</code> - Update user</li>
-              <li>🔹 <code>GET /games</code> - Fetch all games</li>
+              <li>🔹 <code>GET /games</code> - Fetch all games (protected)</li>
               <li>🔹 <code>GET /games/:id</code> - Get single game</li>
               <li>🔹 <code>POST /games</code> - Add new game</li>
               <li>🔹 <code>PUT /games/:id</code> - Update game rank</li>
               <li>🔹 <code>PUT /games/:id/full</code> - Full game update</li>
               <li>🔹 <code>DELETE /games/:id</code> - Delete game</li>
               <li>🔹 <code>GET /games/search?q=term</code> - Search games</li>
-              <li>🔹 <code>POST /signup</code> - User registration</li>
-              <li>🔹 <code>POST /login</code> - User login</li>
-              <li>🔹 <code>POST /send-email</code> - Send email</li>
+              <li>🔹 <code>POST /auth/signup</code> - User registration</li>
+              <li>🔹 <code>POST /auth/login</code> - User login</li>
+              <li>🔹 <code>POST /email/send-email</code> - Send email</li>
               <li>🔹 <code>GET /health</code> - Health check</li>
+              <li>🔹 <code>GET /api-key</code> - Fetch PandaScore API key (protected)</li>
             </ul>
           </div>
           <p><strong>Game Ranks:</strong> Supports manual input (Iron 1, Silver 3, Radiant, etc.)</p>
@@ -582,7 +104,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({
     success: false,
     message: "Something went wrong!",
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
   });
 });
 
@@ -591,29 +113,11 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found",
-    path: req.originalUrl
+    path: req.originalUrl,
   });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`🌐 API available at http://localhost:${PORT}`);
-  console.log(`📱 Test the API at http://localhost:${PORT}/`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received, shutting down gracefully');
-  mongoose.connection.close(() => {
-    console.log('✅ MongoDB connection closed');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received, shutting down gracefully');
-  mongoose.connection.close(() => {
-    console.log('✅ MongoDB connection closed');
-    process.exit(0);
-  });
 });

@@ -1,0 +1,53 @@
+const express = require("express");
+const User = require("../models/User");
+const router = express.Router();
+
+router.get("/", async (req, res) => {
+  try {
+    const users = await User.find({}, "username email profilePic games violations banned banDuration banStartDate");
+    const usersWithDefaults = users.map((user) => ({
+      _id: user._id,
+      username: user.username || "Unknown",
+      email: user.email,
+      profilePic: user.profilePic || null,
+      games: user.games || {},
+      violations: user.violations || 0,
+      banned: user.banned || false,
+      banDuration: user.banDuration || 0,
+      banStartDate: user.banStartDate || null,
+    }));
+
+    console.log("📌 Users fetched from DB:", usersWithDefaults);
+    res.json(usersWithDefaults);
+  } catch (err) {
+    console.error("❌ Error fetching users:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { banned, banDuration, violations } = req.body;
+
+    const updateData = {};
+    if (banned !== undefined) updateData.banned = banned;
+    if (banDuration !== undefined) updateData.banDuration = banDuration;
+    if (violations !== undefined) updateData.violations = violations;
+    if (banned && banDuration !== undefined) updateData.banStartDate = new Date();
+
+    const updatedUser = await User.findByIdAndUpdate(id, { ...updateData, updatedAt: Date.now() }, { new: true, runValidators: true });
+
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    console.log(`🔄 User updated: ${updatedUser.email} (banned: ${updatedUser.banned}, banDuration: ${updatedUser.banDuration})`);
+    res.json({ success: true, user: updatedUser });
+  } catch (err) {
+    console.error("❌ Error updating user:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+module.exports = router;
