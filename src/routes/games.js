@@ -3,14 +3,13 @@ const Game = require("../models/Game");
 const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
 
-// Protect /games endpoint
-router.get("/", authenticateToken, async (req, res) => {
+
+// Public GET
+router.get("/", async (req, res) => {
   try {
     const games = await Game.find().sort({ rank: 1, name: 1 }).select("-__v");
-    console.log(`📊 Fetched ${games.length} games, sorted by rank`);
     res.json(games);
   } catch (err) {
-    console.error("❌ Error fetching games:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });
