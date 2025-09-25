@@ -238,6 +238,23 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
   }
 });
 
+// New route to fetch posts
+router.get("/:gameId/posts", authenticateToken, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const game = await Game.findById(gameId);
+    if (!game) {
+      return res.status(404).json({ success: false, message: "Game not found" });
+    }
+
+    const posts = await Post.find({ gameId }).populate("userId", "username profilePic");
+    res.json({ success: true, posts });
+  } catch (err) {
+    console.error("❌ Error fetching posts:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
   try {
     const targetUser = await User.findById(req.params.userId);
