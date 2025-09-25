@@ -18,7 +18,13 @@ const userSchema = new mongoose.Schema({
   banned: { type: Boolean, default: false },
   banDuration: { type: Number, default: 0 },
   banStartDate: { type: Date, default: null },
-  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  friends: [
+    {
+      user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      addedAt: { type: Date, default: Date.now },
+      rating: { type: Number, min: 1, max: 5 },
+    }
+  ],
   incomingFriendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

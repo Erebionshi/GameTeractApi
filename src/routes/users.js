@@ -34,8 +34,8 @@ router.get("/me", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .select('_id email username profilePic friends incomingFriendRequests games')
-      .populate('incomingFriendRequests', '_id username profilePic games')
-      .populate('friends', '_id username profilePic games');
+      .populate('friends.user', '_id username profilePic games')
+      .populate('incomingFriendRequests', '_id username profilePic games');
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
@@ -152,8 +152,8 @@ router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
     if (targetUser._id.equals(req.user.id)) return res.status(400).json({ success: false, message: "Cannot add yourself" });
 
     const currentUser = await User.findById(req.user.id);
-    if (currentUser.friends.includes(targetUser._id)) return res.status(400).json({ success: false, message: "Already friends" });
-    if (targetUser.incomingFriendRequests.includes(currentUser._id)) return res.status(400).json({ success: false, message: "Request already sent" });
+    if (currentUser.friends.some(f => f.user.equals(targetUser._id))) return res.status(400).json({ success: false, message: "Already friends" });
+    if (targetUser.incomingFriendRequests.some(id => id.equals(currentUser._id))) return res.status(400).json({ success: false, message: "Request already sent" });
 
     targetUser.incomingFriendRequests.push(currentUser._id);
     await targetUser.save();
@@ -172,11 +172,11 @@ router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
     const currentUser = await User.findById(req.user.id);
     const sender = await User.findById(req.params.userId);
     if (!sender) return res.status(404).json({ success: false, message: "User not found" });
-    if (!currentUser.incomingFriendRequests.includes(sender._id)) return res.status(400).json({ success: false, message: "No request from this user" });
+    if (!currentUser.incomingFriendRequests.some(id => id.equals(sender._id))) return res.status(400).json({ success: false, message: "No request from this user" });
 
     currentUser.incomingFriendRequests = currentUser.incomingFriendRequests.filter((id) => !id.equals(sender._id));
-    currentUser.friends.push(sender._id);
-    sender.friends.push(currentUser._id);
+    currentUser.friends.push({ user: sender._id });
+    sender.friends.push({ user: currentUser._id });
 
     await currentUser.save();
     await sender.save();
@@ -194,7 +194,7 @@ router.post("/friend/reject/:userId", authenticateToken, async (req, res) => {
   try {
     const currentUser = await User.findById(req.user.id);
     const senderId = req.params.userId;
-    if (!currentUser.incomingFriendRequests.includes(senderId)) return res.status(400).json({ success: false, message: "No request from this user" });
+    if (!currentUser.incomingFriendRequests.some(id => id.equals(senderId))) return res.status(400).json({ success: false, message: "No request from this user" });
 
     currentUser.incomingFriendRequests = currentUser.incomingFriendRequests.filter((id) => !id.equals(senderId));
     await currentUser.save();
@@ -203,6 +203,49 @@ router.post("/friend/reject/:userId", authenticateToken, async (req, res) => {
     res.json({ success: true, message: "Friend request rejected" });
   } catch (err) {
     console.error("❌ Error rejecting friend request:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Unfriend
+router.post("/friend/unfriend/:userId", authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user.id);
+    const friendId = req.params.userId;
+    if (!currentUser.friends.some(f => f.user.equals(friendId))) return res.status(400).json({ success: false, message: "Not friends" });
+
+    currentUser.friends = currentUser.friends.filter(f => !f.user.equals(friendId));
+    const friend = await User.findById(friendId);
+    friend.friends = friend.friends.filter(f => !f.user.equals(currentUser._id));
+
+    await currentUser.save();
+    await friend.save();
+
+    console.log(`Unfriended: ${currentUser.email} and ${friend.email}`);
+    res.json({ success: true, message: "Unfriended successfully" });
+  } catch (err) {
+    console.error("❌ Error unfriending:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Rate friend
+router.post("/friend/rate/:userId", authenticateToken, async (req, res) => {
+  try {
+    const { rating } = req.body;
+    if (!rating || rating < 1 || rating > 5) return res.status(400).json({ success: false, message: "Rating must be between 1 and 5" });
+
+    const currentUser = await User.findById(req.user.id);
+    const friendEntry = currentUser.friends.find(f => f.user.equals(req.params.userId));
+    if (!friendEntry) return res.status(400).json({ success: false, message: "Not friends" });
+
+    friendEntry.rating = rating;
+    await currentUser.save();
+
+    console.log(`Rated friend ${req.params.userId} by ${currentUser.email} with ${rating}`);
+    res.json({ success: true, message: "Friend rated successfully" });
+  } catch (err) {
+    console.error("❌ Error rating friend:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });

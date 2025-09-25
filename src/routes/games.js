@@ -255,7 +255,7 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
 
     posts = posts.map((post) => {
       post = post.toObject();
-      const isFriend = post.userId.friends.some((f) => f.toString() === req.user.id);
+      const isFriend = post.userId.friends.some((f) => f.user.toString() === req.user.id);
       if (requiresPrivateCode && !isFriend) {
         post.partyCode = undefined;
       }
