@@ -1,9 +1,8 @@
 const express = require("express");
 const Game = require("../models/Game");
+const Post = require("../models/Post"); // Ensure Post model is imported
 const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
-
-
 
 // Public GET
 router.get("/", async (req, res) => {
@@ -192,6 +191,49 @@ router.delete("/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error deleting game:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// New route to create a post
+router.post("/:gameId/posts", authenticateToken, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { rank, team, vibe, mic, partyCode } = req.body;
+
+    // Validate required fields
+    if (!rank || !team || !vibe || !mic) {
+      return res.status(400).json({ success: false, message: "Rank, team, vibe, and mic are required" });
+    }
+
+    // Check if the game exists
+    const game = await Game.findById(gameId);
+    if (!game) {
+      return res.status(404).json({ success: false, message: "Game not found" });
+    }
+
+    // Validate party code for Valorant
+    const isValorant = game.name.toLowerCase() === "valorant";
+    if (isValorant && !partyCode) {
+      return res.status(400).json({ success: false, message: "Party code is required for Valorant" });
+    }
+
+    // Create new post
+    const post = new Post({
+      userId: req.user.id,
+      gameId,
+      rank,
+      team,
+      vibe,
+      mic,
+      partyCode: isValorant ? partyCode : undefined,
+    });
+
+    await post.save();
+    console.log(`🆕 New post created for game ${game.name} by user ${req.user.email}`);
+    res.json({ success: true, post });
+  } catch (err) {
+    console.error("❌ Error creating post:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
