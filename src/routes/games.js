@@ -4,6 +4,7 @@ const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
 
 
+
 // Public GET
 router.get("/", async (req, res) => {
   try {
