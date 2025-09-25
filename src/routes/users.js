@@ -1,6 +1,6 @@
 const express = require("express");
-const User = require("../models/User");
 const { authenticateToken } = require("../middleware/auth");
+const User = require("../models/User");
 const router = express.Router();
 
 // Fetch all users
@@ -24,12 +24,12 @@ router.get("/", async (req, res) => {
 
     res.json(usersWithDefaults);
   } catch (err) {
-    console.error("❌ Error fetching users:", err.message);
+    console.error("❌ Error fetching users:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ✅ Update current logged-in user
+// Update current logged-in user
 router.put("/me", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -52,12 +52,12 @@ router.put("/me", authenticateToken, async (req, res) => {
     console.log(`🔄 User updated: ${updatedUser.email} (username: ${updatedUser.username})`);
     res.json(updatedUser);
   } catch (err) {
-    console.error("❌ Error updating current user:", err.message);
+    console.error("❌ Error updating current user:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Existing PUT /users/:id (for admin actions like banning)
+// Update user (for admin actions like banning)
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -82,7 +82,7 @@ router.put("/:id", async (req, res) => {
     console.log(`🔄 User updated: ${updatedUser.email}`);
     res.json({ success: true, user: updatedUser });
   } catch (err) {
-    console.error("❌ Error updating user:", err.message);
+    console.error("❌ Error updating user:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -94,9 +94,10 @@ router.get("/me/games", authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
+    console.log(`Fetched games for user ${req.user.email}:`, user.games);
     res.json(user.games || {});
   } catch (err) {
-    console.error("❌ Error fetching user game data:", err.message);
+    console.error("❌ Error fetching user game data:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -106,6 +107,7 @@ router.post("/me/games", authenticateToken, async (req, res) => {
   try {
     const { gameId, ign, rank } = req.body;
     if (!gameId || !ign || !rank) {
+      console.error("Missing required fields:", { gameId, ign, rank });
       return res.status(400).json({ success: false, message: "Game ID, IGN, and rank are required" });
     }
 
@@ -114,13 +116,13 @@ router.post("/me/games", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    user.games[gameId] = { ign, rank };
+    user.games.set(gameId, { ign: ign.trim(), rank: rank.trim() });
     await user.save();
 
-    console.log(`🆕 Game data saved for user ${user.email}: ${gameId}`);
+    console.log(`🆕 Game data saved for user ${user.email}: ${gameId} (IGN: ${ign}, Rank: ${rank})`);
     res.json({ success: true, message: "Game data saved successfully" });
   } catch (err) {
-    console.error("❌ Error saving game data:", err.message);
+    console.error("❌ Error saving game data:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
