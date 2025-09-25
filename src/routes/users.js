@@ -87,4 +87,42 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+// Get user's game data
+router.get("/me/games", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('games');
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    res.json(user.games || {});
+  } catch (err) {
+    console.error("❌ Error fetching user game data:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Save user's game data
+router.post("/me/games", authenticateToken, async (req, res) => {
+  try {
+    const { gameId, ign, rank } = req.body;
+    if (!gameId || !ign || !rank) {
+      return res.status(400).json({ success: false, message: "Game ID, IGN, and rank are required" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    user.games[gameId] = { ign, rank };
+    await user.save();
+
+    console.log(`🆕 Game data saved for user ${user.email}: ${gameId}`);
+    res.json({ success: true, message: "Game data saved successfully" });
+  } catch (err) {
+    console.error("❌ Error saving game data:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

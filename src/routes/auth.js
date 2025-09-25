@@ -2,11 +2,11 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const router = express.Router()
+const router = express.Router();
 
 router.post("/signup", async (req, res) => {
   try {
-    const { username, email, password, profilePic, games } = req.body;
+    const { username, email, password, profilePic } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -19,7 +19,7 @@ router.post("/signup", async (req, res) => {
       email: email.trim(),
       password: hashedPassword,
       profilePic: profilePic || null,
-      games: games || {},
+      games: {},
       violations: 0,
       banned: false,
       banDuration: 0,
@@ -27,8 +27,12 @@ router.post("/signup", async (req, res) => {
     });
     await user.save();
 
+    const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET || "supersecretkey", {
+      expiresIn: "1h",
+    });
+
     console.log(`🆕 New user registered: ${user.email}`);
-    res.json({ success: true, message: "User registered successfully" });
+    res.json({ success: true, message: "User registered successfully", token });
   } catch (err) {
     console.error("❌ Error in signup:", err.message);
     res.status(500).json({ success: false, message: err.message });
