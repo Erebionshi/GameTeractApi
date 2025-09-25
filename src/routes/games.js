@@ -1,6 +1,8 @@
+// Updated src/routes/games.js (removed friend routes)
 const express = require("express");
 const Game = require("../models/Game");
-const Post = require("../models/Post"); // Ensure Post model is imported
+const Post = require("../models/Post");
+const User = require("../models/User");
 const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
 
@@ -238,6 +240,47 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
   }
 });
 
+// New route to edit a post
+router.put("/:gameId/posts/:postId", authenticateToken, async (req, res) => {
+  try {
+    const { gameId, postId } = req.params;
+    const { rank, team, vibe, mic, partyCode } = req.body;
+
+    const post = await Post.findById(postId);
+    if (!post || post.gameId.toString() !== gameId) {
+      return res.status(404).json({ success: false, message: "Post not found" });
+    }
+
+    if (post.userId.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: "You do not own this post" });
+    }
+
+    // Update fields
+    if (rank) post.rank = rank;
+    if (team) post.team = team;
+    if (vibe) post.vibe = vibe;
+    if (mic) post.mic = mic;
+
+    const game = await Game.findById(gameId);
+    const isValorant = game.name.toLowerCase() === "valorant";
+    if (isValorant) {
+      if (partyCode === undefined) {
+        return res.status(400).json({ success: false, message: "Party code is required for Valorant" });
+      }
+      post.partyCode = partyCode;
+    } else {
+      post.partyCode = undefined;
+    }
+
+    await post.save();
+    console.log(`✏️ Post edited for game ${game.name} by user ${req.user.email}`);
+    res.json({ success: true, post });
+  } catch (err) {
+    console.error("❌ Error editing post:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // New route to fetch posts
 router.get("/:gameId/posts", authenticateToken, async (req, res) => {
   try {
@@ -247,54 +290,24 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
 
-    const posts = await Post.find({ gameId }).populate("userId", "username profilePic");
+    const isValorant = game.name.toLowerCase() === "valorant";
+    let posts = await Post.find({ gameId }).populate("userId", "profilePic games friends");
+
+    posts = posts.map((post) => {
+      post = post.toObject();
+      const isFriend = post.userId.friends.some((f) => f.toString() === req.user.id);
+      if (isValorant && !isFriend) {
+        post.partyCode = undefined;
+      }
+      post.username = post.userId.games.get(gameId)?.ign || 'Unknown';
+      delete post.userId.games;
+      delete post.userId.friends;
+      return post;
+    });
+
     res.json({ success: true, posts });
   } catch (err) {
     console.error("❌ Error fetching posts:", err.message, err.stack);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
-  try {
-    const targetUser = await User.findById(req.params.userId);
-    if (!targetUser) return res.status(404).json({ success: false, message: "User not found" });
-    if (targetUser._id.equals(req.user.id)) return res.status(400).json({ success: false, message: "Cannot add yourself" });
-
-    const currentUser = await User.findById(req.user.id);
-    if (currentUser.friends.includes(targetUser._id)) return res.status(400).json({ success: false, message: "Already friends" });
-    if (targetUser.incomingFriendRequests.includes(currentUser._id)) return res.status(400).json({ success: false, message: "Request already sent" });
-
-    targetUser.incomingFriendRequests.push(currentUser._id);
-    await targetUser.save();
-
-    console.log(`Friend request sent from ${currentUser.email} to ${targetUser.email}`);
-    res.json({ success: true, message: "Friend request sent" });
-  } catch (err) {
-    console.error("❌ Error sending friend request:", err.message, err.stack);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Accept friend request
-router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
-  try {
-    const currentUser = await User.findById(req.user.id);
-    const sender = await User.findById(req.params.userId);
-    if (!sender) return res.status(404).json({ success: false, message: "User not found" });
-    if (!currentUser.incomingFriendRequests.includes(sender._id)) return res.status(400).json({ success: false, message: "No request from this user" });
-
-    currentUser.incomingFriendRequests = currentUser.incomingFriendRequests.filter((id) => !id.equals(sender._id));
-    currentUser.friends.push(sender._id);
-    sender.friends.push(currentUser._id);
-
-    await currentUser.save();
-    await sender.save();
-
-    console.log(`Friend request accepted: ${currentUser.email} and ${sender.email}`);
-    res.json({ success: true, message: "Friend request accepted" });
-  } catch (err) {
-    console.error("❌ Error accepting friend request:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });

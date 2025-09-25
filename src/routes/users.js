@@ -1,3 +1,4 @@
+// Updated src/routes/users.js
 const express = require("express");
 const { authenticateToken } = require("../middleware/auth");
 const User = require("../models/User");
@@ -25,6 +26,20 @@ router.get("/", async (req, res) => {
     res.json(usersWithDefaults);
   } catch (err) {
     console.error("❌ Error fetching users:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Get current user
+router.get("/me", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('_id email username profilePic friends incomingFriendRequests games');
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    res.json(user);
+  } catch (err) {
+    console.error("❌ Error fetching current user:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -123,6 +138,51 @@ router.post("/me/games", authenticateToken, async (req, res) => {
     res.json({ success: true, message: "Game data saved successfully" });
   } catch (err) {
     console.error("❌ Error saving game data:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Send friend request
+router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
+  try {
+    const targetUser = await User.findById(req.params.userId);
+    if (!targetUser) return res.status(404).json({ success: false, message: "User not found" });
+    if (targetUser._id.equals(req.user.id)) return res.status(400).json({ success: false, message: "Cannot add yourself" });
+
+    const currentUser = await User.findById(req.user.id);
+    if (currentUser.friends.includes(targetUser._id)) return res.status(400).json({ success: false, message: "Already friends" });
+    if (targetUser.incomingFriendRequests.includes(currentUser._id)) return res.status(400).json({ success: false, message: "Request already sent" });
+
+    targetUser.incomingFriendRequests.push(currentUser._id);
+    await targetUser.save();
+
+    console.log(`Friend request sent from ${currentUser.email} to ${targetUser.email}`);
+    res.json({ success: true, message: "Friend request sent" });
+  } catch (err) {
+    console.error("❌ Error sending friend request:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Accept friend request
+router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user.id);
+    const sender = await User.findById(req.params.userId);
+    if (!sender) return res.status(404).json({ success: false, message: "User not found" });
+    if (!currentUser.incomingFriendRequests.includes(sender._id)) return res.status(400).json({ success: false, message: "No request from this user" });
+
+    currentUser.incomingFriendRequests = currentUser.incomingFriendRequests.filter((id) => !id.equals(sender._id));
+    currentUser.friends.push(sender._id);
+    sender.friends.push(currentUser._id);
+
+    await currentUser.save();
+    await sender.save();
+
+    console.log(`Friend request accepted: ${currentUser.email} and ${sender.email}`);
+    res.json({ success: true, message: "Friend request accepted" });
+  } catch (err) {
+    console.error("❌ Error accepting friend request:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
