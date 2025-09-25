@@ -1,3 +1,4 @@
+// Modified src/models/User.js
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
@@ -13,11 +14,13 @@ const userSchema = new mongoose.Schema({
     },
     default: {},
   },
-  gamesInfoComplete: { type: Boolean, default: false }, // New flag
+  gamesInfoComplete: { type: Boolean, default: false },
   violations: { type: Number, default: 0 },
   banned: { type: Boolean, default: false },
   banDuration: { type: Number, default: 0 },
   banStartDate: { type: Date, default: null },
+  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  incomingFriendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
