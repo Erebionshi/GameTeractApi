@@ -1,4 +1,3 @@
-// Updated src/routes/games.js (removed friend routes)
 const express = require("express");
 const Game = require("../models/Game");
 const Post = require("../models/Post");
@@ -214,10 +213,10 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
 
-    // Validate party code for Valorant
-    const isValorant = game.name.toLowerCase() === "valorant";
-    if (isValorant && !partyCode) {
-      return res.status(400).json({ success: false, message: "Party code is required for Valorant" });
+    const lowerName = game.name.toLowerCase();
+    const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
+    if (requiresPrivateCode && !partyCode) {
+      return res.status(400).json({ success: false, message: "Private code is required for this game" });
     }
 
     // Create new post
@@ -228,7 +227,7 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       team,
       vibe,
       mic,
-      partyCode: isValorant ? partyCode : undefined,
+      partyCode: requiresPrivateCode ? partyCode : undefined,
     });
 
     await post.save();
@@ -236,47 +235,6 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
     res.json({ success: true, post });
   } catch (err) {
     console.error("❌ Error creating post:", err.message, err.stack);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// New route to edit a post
-router.put("/:gameId/posts/:postId", authenticateToken, async (req, res) => {
-  try {
-    const { gameId, postId } = req.params;
-    const { rank, team, vibe, mic, partyCode } = req.body;
-
-    const post = await Post.findById(postId);
-    if (!post || post.gameId.toString() !== gameId) {
-      return res.status(404).json({ success: false, message: "Post not found" });
-    }
-
-    if (post.userId.toString() !== req.user.id) {
-      return res.status(403).json({ success: false, message: "You do not own this post" });
-    }
-
-    // Update fields
-    if (rank) post.rank = rank;
-    if (team) post.team = team;
-    if (vibe) post.vibe = vibe;
-    if (mic) post.mic = mic;
-
-    const game = await Game.findById(gameId);
-    const isValorant = game.name.toLowerCase() === "valorant";
-    if (isValorant) {
-      if (partyCode === undefined) {
-        return res.status(400).json({ success: false, message: "Party code is required for Valorant" });
-      }
-      post.partyCode = partyCode;
-    } else {
-      post.partyCode = undefined;
-    }
-
-    await post.save();
-    console.log(`✏️ Post edited for game ${game.name} by user ${req.user.email}`);
-    res.json({ success: true, post });
-  } catch (err) {
-    console.error("❌ Error editing post:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -290,13 +248,15 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
 
-    const isValorant = game.name.toLowerCase() === "valorant";
+    const lowerName = game.name.toLowerCase();
+    const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
+
     let posts = await Post.find({ gameId }).populate("userId", "profilePic games friends");
 
     posts = posts.map((post) => {
       post = post.toObject();
       const isFriend = post.userId.friends.some((f) => f.toString() === req.user.id);
-      if (isValorant && !isFriend) {
+      if (requiresPrivateCode && !isFriend) {
         post.partyCode = undefined;
       }
       post.username = post.userId.games.get(gameId)?.ign || 'Unknown';

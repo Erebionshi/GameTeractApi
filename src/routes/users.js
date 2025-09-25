@@ -1,4 +1,3 @@
-// Updated src/routes/users.js
 const express = require("express");
 const { authenticateToken } = require("../middleware/auth");
 const User = require("../models/User");
@@ -33,7 +32,10 @@ router.get("/", async (req, res) => {
 // Get current user
 router.get("/me", authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('_id email username profilePic friends incomingFriendRequests games');
+    const user = await User.findById(req.user.id)
+      .select('_id email username profilePic friends incomingFriendRequests games')
+      .populate('incomingFriendRequests', '_id username profilePic games')
+      .populate('friends', '_id username profilePic games');
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
@@ -183,6 +185,24 @@ router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
     res.json({ success: true, message: "Friend request accepted" });
   } catch (err) {
     console.error("❌ Error accepting friend request:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Reject friend request
+router.post("/friend/reject/:userId", authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user.id);
+    const senderId = req.params.userId;
+    if (!currentUser.incomingFriendRequests.includes(senderId)) return res.status(400).json({ success: false, message: "No request from this user" });
+
+    currentUser.incomingFriendRequests = currentUser.incomingFriendRequests.filter((id) => !id.equals(senderId));
+    await currentUser.save();
+
+    console.log(`Friend request rejected for user ${req.user.email} from ${senderId}`);
+    res.json({ success: true, message: "Friend request rejected" });
+  } catch (err) {
+    console.error("❌ Error rejecting friend request:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
