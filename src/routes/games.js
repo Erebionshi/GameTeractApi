@@ -213,6 +213,12 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
 
+    // Check if the user has game data
+    const user = await User.findById(req.user.id).select('games');
+    if (!user.games.has(gameId)) {
+      return res.status(400).json({ success: false, message: "You must save your game data (IGN and rank) before posting" });
+    }
+
     const lowerName = game.name.toLowerCase();
     const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
     if (requiresPrivateCode && !partyCode) {
@@ -250,7 +256,8 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
     const lowerName = game.name.toLowerCase();
     const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
 
-    let posts = await Post.find({ gameId }).populate("userId", "profilePic games friends");
+    // Populate userId with necessary fields
+    let posts = await Post.find({ gameId }).populate("userId", "username profilePic games friends");
 
     posts = posts.filter(post => {
       if (!post.userId) {
@@ -279,7 +286,8 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
       if (requiresPrivateCode && !isFriend) {
         post.partyCode = undefined;
       }
-      post.username = post.userId.games[gameId]?.ign || 'Unknown';
+      // Use the actual username instead of IGN, or ensure IGN exists
+      post.username = post.userId.username || post.userId.games[gameId]?.ign || 'Unknown';
       delete post.userId.games;
       delete post.userId.friends;
       return post;

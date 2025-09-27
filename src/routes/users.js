@@ -152,8 +152,22 @@ router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
     if (targetUser._id.equals(req.user.id)) return res.status(400).json({ success: false, message: "Cannot add yourself" });
 
     const currentUser = await User.findById(req.user.id);
-    if (currentUser.friends.some(f => f.user.equals(targetUser._id))) return res.status(400).json({ success: false, message: "Already friends" });
-    if (targetUser.incomingFriendRequests.some(id => id.equals(currentUser._id))) return res.status(400).json({ success: false, message: "Request already sent" });
+    if (!currentUser) return res.status(404).json({ success: false, message: "Current user not found" });
+
+    // Check if already friends, handling invalid friend entries
+    const isAlreadyFriend = currentUser.friends.some(f => {
+      if (!f || !f.user) {
+        console.warn(`Invalid friend entry in user ${currentUser._id}:`, f);
+        return false;
+      }
+      return f.user.equals(targetUser._id);
+    });
+    if (isAlreadyFriend) return res.status(400).json({ success: false, message: "Already friends" });
+
+    // Check if request already sent
+    if (targetUser.incomingFriendRequests.some(id => id.equals(currentUser._id))) {
+      return res.status(400).json({ success: false, message: "Request already sent" });
+    }
 
     targetUser.incomingFriendRequests.push(currentUser._id);
     await targetUser.save();
@@ -165,7 +179,6 @@ router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 // Accept friend request
 router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
   try {
