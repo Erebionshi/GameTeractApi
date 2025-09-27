@@ -252,7 +252,6 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
 
     let posts = await Post.find({ gameId }).populate("userId", "profilePic games friends");
 
-    // Filter out posts where userId failed to populate (e.g., user deleted)
     posts = posts.filter(post => {
       if (!post.userId) {
         console.warn(`Post ${post._id} has no valid userId`);
@@ -263,17 +262,18 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
 
     posts = posts.map((post) => {
       post = post.toObject();
-      // Handle friends array: check if it's an array of objects or raw ObjectIds
       const isFriend = post.userId.friends && Array.isArray(post.userId.friends)
         ? post.userId.friends.some((f) => {
-            // Handle both { user: ObjectId } and raw ObjectId cases
-            if (f && typeof f === 'object' && f.user) {
-              return f.user.toString() === req.user.id;
-            } else if (f && typeof f !== 'object') {
-              return f.toString() === req.user.id;
+            try {
+              if (f && typeof f === 'object' && f.user) {
+                return f.user.toString() === req.user.id;
+              }
+              console.warn(`Invalid friend entry in user ${post.userId._id}:`, f);
+              return false;
+            } catch (err) {
+              console.warn(`Error processing friend entry in user ${post.userId._id}:`, f, err.message);
+              return false;
             }
-            console.warn(`Invalid friend entry in user ${post.userId._id}:`, f);
-            return false;
           })
         : false;
       if (requiresPrivateCode && !isFriend) {
@@ -291,5 +291,4 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 module.exports = router;

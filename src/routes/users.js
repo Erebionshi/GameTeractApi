@@ -123,11 +123,11 @@ router.get("/me/games", authenticateToken, async (req, res) => {
 router.post("/me/games", authenticateToken, async (req, res) => {
   try {
     const { gameId, ign, rank } = req.body;
+    console.log('Received game data:', { gameId, ign, rank }); // Debug log
     if (!gameId || !ign || !rank) {
       console.error("Missing required fields:", { gameId, ign, rank });
       return res.status(400).json({ success: false, message: "Game ID, IGN, and rank are required" });
     }
-
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -138,7 +138,7 @@ router.post("/me/games", authenticateToken, async (req, res) => {
 
     console.log(`🆕 Game data saved for user ${user.email}: ${gameId} (IGN: ${ign}, Rank: ${rank})`);
     res.json({ success: true, message: "Game data saved successfully" });
-  } catch (err) {
+} catch (err) {
     console.error("❌ Error saving game data:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -172,11 +172,14 @@ router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
     const currentUser = await User.findById(req.user.id);
     const sender = await User.findById(req.params.userId);
     if (!sender) return res.status(404).json({ success: false, message: "User not found" });
-    if (!currentUser.incomingFriendRequests.some(id => id.equals(sender._id))) return res.status(400).json({ success: false, message: "No request from this user" });
+    if (!currentUser.incomingFriendRequests.some(id => id.equals(sender._id))) {
+      return res.status(400).json({ success: false, message: "No request from this user" });
+    }
 
     currentUser.incomingFriendRequests = currentUser.incomingFriendRequests.filter((id) => !id.equals(sender._id));
-    currentUser.friends.push({ user: sender._id });
-    sender.friends.push({ user: currentUser._id });
+    // Ensure correct friend entry format
+    currentUser.friends.push({ user: sender._id, addedAt: new Date() });
+    sender.friends.push({ user: currentUser._id, addedAt: new Date() });
 
     await currentUser.save();
     await sender.save();
@@ -188,7 +191,6 @@ router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 // Reject friend request
 router.post("/friend/reject/:userId", authenticateToken, async (req, res) => {
   try {
