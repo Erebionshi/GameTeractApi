@@ -257,7 +257,10 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
 
     posts = posts.map((post) => {
       post = post.toObject();
-      const isFriend = post.userId.friends.some((f) => f.user.toString() === req.user.id);
+      // Check if friends array exists and filter out invalid friend entries
+      const isFriend = post.userId.friends && Array.isArray(post.userId.friends)
+        ? post.userId.friends.some((f) => f.user && f.user.toString() === req.user.id)
+        : false;
       if (requiresPrivateCode && !isFriend) {
         post.partyCode = undefined;
       }
