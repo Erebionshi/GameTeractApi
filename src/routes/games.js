@@ -239,7 +239,6 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
   }
 });
 
-// New route to fetch posts
 router.get("/:gameId/posts", authenticateToken, async (req, res) => {
   try {
     const { gameId } = req.params;
@@ -252,6 +251,9 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
     const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
 
     let posts = await Post.find({ gameId }).populate("userId", "profilePic games friends");
+
+    // Filter out posts where userId failed to populate (e.g., user deleted)
+    posts = posts.filter(post => post.userId);
 
     posts = posts.map((post) => {
       post = post.toObject();
