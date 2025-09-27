@@ -9,10 +9,9 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const games = await Game.find().sort({ rank: 1, name: 1 }).select("-__v");
-    res.json({ success: true, games });
+    res.json(games);
   } catch (err) {
-    console.error("❌ Error fetching games:", err.message);
-    res.status(500).json({ success: false, message: "Failed to fetch games" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -37,7 +36,7 @@ router.get("/search", async (req, res) => {
     res.json({ success: true, games, count: games.length });
   } catch (err) {
     console.error("❌ Error searching games:", err.message);
-    res.status(500).json({ success: false, message: "Failed to search games" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -51,7 +50,7 @@ router.get("/:id", async (req, res) => {
     res.json({ success: true, game });
   } catch (err) {
     console.error("❌ Error fetching game:", err.message);
-    res.status(500).json({ success: false, message: "Failed to fetch game" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -93,7 +92,7 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error adding game:", err.message);
-    res.status(500).json({ success: false, message: "Failed to add game" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -120,7 +119,7 @@ router.put("/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error updating game rank:", err.message);
-    res.status(500).json({ success: false, message: "Failed to update game rank" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -171,7 +170,7 @@ router.put("/:id/full", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error updating game:", err.message);
-    res.status(500).json({ success: false, message: "Failed to update game" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -193,11 +192,11 @@ router.delete("/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error deleting game:", err.message);
-    res.status(500).json({ success: false, message: "Failed to delete game" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Create a post
+// New route to create a post
 router.post("/:gameId/posts", authenticateToken, async (req, res) => {
   try {
     const { gameId } = req.params;
@@ -208,42 +207,16 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "Rank, team, vibe, and mic are required" });
     }
 
-    // Validate allowed values
-    const validTeams = ["Duo", "Trio", "Any"];
-    const validVibes = ["Casual", "Fun", "Competitive"];
-    const validMics = ["Open Mic", "Close Mic"];
-    if (!validTeams.includes(team)) {
-      return res.status(400).json({ success: false, message: `Team must be one of: ${validTeams.join(", ")}` });
-    }
-    if (!validVibes.includes(vibe)) {
-      return res.status(400).json({ success: false, message: `Vibe must be one of: ${validVibes.join(", ")}` });
-    }
-    if (!validMics.includes(mic)) {
-      return res.status(400).json({ success: false, message: `Mic must be one of: ${validMics.join(", ")}` });
-    }
-
     // Check if the game exists
     const game = await Game.findById(gameId);
     if (!game) {
       return res.status(404).json({ success: false, message: "Game not found" });
     }
 
-    // Validate rank against game ranks
-    const validRanks = Array.isArray(game.rank) ? game.rank : game.rank.split(",").map(r => r.trim());
-    if (!validRanks.includes(rank)) {
-      return res.status(400).json({ success: false, message: `Rank must be one of: ${validRanks.join(", ")}` });
-    }
-
     const lowerName = game.name.toLowerCase();
     const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
     if (requiresPrivateCode && !partyCode) {
-      return res.status(400).json({ success: false, message: `${lowerName === "valorant" ? "Party Code" : "Steam IGN"} is required for ${game.name}` });
-    }
-
-    // Check if user has game data
-    const user = await User.findById(req.user.id);
-    if (!user.games.has(gameId)) {
-      return res.status(400).json({ success: false, message: "User has not set up game data for this game" });
+      return res.status(400).json({ success: false, message: "Private code is required for this game" });
     }
 
     // Create new post
@@ -259,14 +232,13 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
 
     await post.save();
     console.log(`🆕 New post created for game ${game.name} by user ${req.user.email}`);
-    res.json({ success: true, message: "Post created successfully", post });
+    res.json({ success: true, post });
   } catch (err) {
     console.error("❌ Error creating post:", err.message, err.stack);
-    res.status(500).json({ success: false, message: "Failed to create post" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Fetch posts
 router.get("/:gameId/posts", authenticateToken, async (req, res) => {
   try {
     const { gameId } = req.params;
@@ -278,31 +250,27 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
     const lowerName = game.name.toLowerCase();
     const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
 
-    // Fetch posts and populate user data
-    let posts = await Post.find({ gameId })
-      .populate("userId", "profilePic username games friends")
-      .sort({ createdAt: -1 });
+    let posts = await Post.find({ gameId }).populate("userId", "profilePic games friends");
 
-    // Filter out posts where userId failed to populate
+    // Filter out posts where userId failed to populate (e.g., user deleted)
     posts = posts.filter(post => post.userId);
 
-    // Transform posts for response
     posts = posts.map((post) => {
-      const postObj = post.toObject();
-      const isFriend = postObj.userId.friends.some((f) => f.user.toString() === req.user.id);
+      post = post.toObject();
+      const isFriend = post.userId.friends.some((f) => f.user.toString() === req.user.id);
       if (requiresPrivateCode && !isFriend) {
-        postObj.partyCode = undefined; // Hide partyCode for non-friends
+        post.partyCode = undefined;
       }
-      postObj.username = postObj.userId.games.get(gameId)?.ign || postObj.userId.username || 'Unknown';
-      delete postObj.userId.games;
-      delete postObj.userId.friends;
-      return postObj;
+      post.username = post.userId.games[gameId]?.ign || 'Unknown';
+      delete post.userId.games;
+      delete post.userId.friends;
+      return post;
     });
 
     res.json({ success: true, posts });
   } catch (err) {
     console.error("❌ Error fetching posts:", err.message, err.stack);
-    res.status(500).json({ success: false, message: "Failed to fetch posts" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
