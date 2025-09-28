@@ -299,4 +299,24 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// In games.js (backend)
+router.delete("/:gameId/posts/:postId", authenticateToken, async (req, res) => {
+  try {
+    const { gameId, postId } = req.params;
+    const userId = req.user.id;
+
+    const post = await Post.findOne({ _id: postId, gameId, userId });
+    if (!post) {
+      return res.status(404).json({ success: false, message: "Post not found or you are not authorized to delete it" });
+    }
+
+    await Post.findByIdAndDelete(postId);
+    console.log(`🗑️ Post deleted: ${postId} by user ${req.user.email}`);
+    res.json({ success: true, message: "Post deleted successfully" });
+  } catch (err) {
+    console.error("❌ Error deleting post:", err.message, err.stack);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 module.exports = router;
