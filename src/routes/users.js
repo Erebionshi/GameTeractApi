@@ -8,7 +8,7 @@ router.get("/", async (req, res) => {
   try {
     const users = await User.find(
       {},
-      "username email profilePic games violations banned banDuration banStartDate"
+      "username email profilePic games violations banned banDuration banStartDate rating" // Added rating
     );
     const usersWithDefaults = users.map((user) => ({
       _id: user._id,
@@ -20,6 +20,7 @@ router.get("/", async (req, res) => {
       banned: user.banned || false,
       banDuration: user.banDuration || 0,
       banStartDate: user.banStartDate || null,
+      rating: user.rating || 5, // Include rating with default
     }));
 
     res.json(usersWithDefaults);
@@ -33,9 +34,9 @@ router.get("/", async (req, res) => {
 router.get("/me", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
-      .select('_id email username profilePic friends incomingFriendRequests games')
-      .populate('friends.user', '_id username profilePic games')
-      .populate('incomingFriendRequests', '_id username profilePic games');
+      .select('_id email username profilePic friends incomingFriendRequests games rating') // Added rating
+      .populate('friends.user', '_id username profilePic games rating') // Added rating to populate
+      .populate('incomingFriendRequests', '_id username profilePic games rating'); // Added rating to populate
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
@@ -138,7 +139,7 @@ router.post("/me/games", authenticateToken, async (req, res) => {
 
     console.log(`🆕 Game data saved for user ${user.email}: ${gameId} (IGN: ${ign}, Rank: ${rank})`);
     res.json({ success: true, message: "Game data saved successfully" });
-} catch (err) {
+  } catch (err) {
     console.error("❌ Error saving game data:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -179,6 +180,7 @@ router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 // Accept friend request
 router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
   try {
@@ -204,6 +206,7 @@ router.post("/friend/accept/:userId", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 // Reject friend request
 router.post("/friend/reject/:userId", authenticateToken, async (req, res) => {
   try {

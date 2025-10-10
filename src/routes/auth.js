@@ -8,33 +8,42 @@ router.post("/signup", async (req, res) => {
   try {
     const { username, email, password, profilePic } = req.body;
 
+    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ success: false, message: "Email already exists" });
     }
 
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new user
     const user = new User({
-      username: username?.trim() || undefined,
-      email: email.trim(),
+      username,
+      email,
       password: hashedPassword,
-      profilePic: profilePic || null,
-      games: {},
-      violations: 0,
-      banned: false,
-      banDuration: 0,
-      banStartDate: null,
+      profilePic,
+      rating: 5, // Explicitly set to ensure clarity, though schema default handles it
     });
+
     await user.save();
 
-    const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET || "supersecretkey", {
-      expiresIn: "1h",
-    });
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
-    console.log(`🆕 New user registered: ${user.email}`);
-    res.json({ success: true, message: "User registered successfully", token });
+    res.json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePic: user.profilePic,
+        rating: user.rating, // Include rating in response
+      },
+    });
   } catch (err) {
-    console.error("❌ Error in signup:", err.message);
+    console.error("❌ Error during signup:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });
   }
 });
