@@ -35,7 +35,7 @@ router.get("/me", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .select('_id email username profilePic friends incomingFriendRequests games rating') // Added rating
-      .populate('friends.user', '_id username profilePic games rating') // Added rating to populate
+      .populate('friends.user', '_id username profilePic games rating raters') // Added rating to populate
       .populate('incomingFriendRequests', '_id username profilePic games rating'); // Added rating to populate
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -253,33 +253,24 @@ router.post("/friend/rate/:userId", authenticateToken, async (req, res) => {
     const { rating } = req.body;
     if (!rating || rating < 1 || rating > 5) return res.status(400).json({ success: false, message: "Rating must be between 1 and 5" });
 
-    const currentUser = await User.findById(req.user.id);
-    const friendEntry = currentUser.friends.find(f => f.user.equals(req.params.userId));
-    if (!friendEntry) return res.status(400).json({ success: false, message: "Not friends" });
-    if (friendEntry.rating) return res.status(400).json({ success: false, message: "Already rated this friend" });
-
-    friendEntry.rating = rating;
-    await currentUser.save();
-
-    // Update target's average rating
     const targetId = req.params.userId;
-    const raters = await User.find({ "friends.user": targetId });
-    let totalRating = 0;
-    let count = 0;
-    raters.forEach((rater) => {
-      const entry = rater.friends.find(f => f.user.equals(targetId));
-      if (entry && entry.rating) {
-        totalRating += entry.rating;
-        count++;
-      }
-    });
-    const average = count > 0 ? totalRating / count : 5; // Default to 5 if no ratings
+    const currentUser = await User.findById(req.user.id);
     const targetUser = await User.findById(targetId);
-    targetUser.rating = average;
+    if (!targetUser) return res.status(404).json({ success: false, message: "User not found" });
+    // Check if friends
+    if (!currentUser.friends.some(f => f.user.equals(targetId))) return res.status(400).json({ success: false, message: "Not friends" });
+    // Check if already rated
+    if (targetUser.raters.some(r => r.from.equals(req.user.id))) return res.status(400).json({ success: false, message: "Already rated this user" });
+    // Add rating
+    targetUser.raters.push({ from: req.user.id, rating });
+    // Compute average
+    const total = targetUser.raters.reduce((sum, r) => sum + r.rating, 0);
+    const avg = targetUser.raters.length > 0 ? total / targetUser.raters.length : 5;
+    targetUser.rating = avg;
     await targetUser.save();
 
-    console.log(`Rated friend ${targetId} by ${currentUser.email} with ${rating}. Updated target rating to ${average}`);
-    res.json({ success: true, message: "Friend rated successfully" });
+    console.log(`Rated user ${targetId} by ${currentUser.email} with ${rating}. Updated rating to ${avg}`);
+    res.json({ success: true, message: "User rated successfully" });
   } catch (err) {
     console.error("❌ Error rating friend:", err.message, err.stack);
     res.status(500).json({ success: false, message: err.message });

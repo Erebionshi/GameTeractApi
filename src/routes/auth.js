@@ -90,7 +90,7 @@ router.post("/login", async (req, res) => {
     }
 
     const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET || "supersecretkey", {
-      expiresIn: "1h",
+      expiresIn: "5h",
     });
     console.log(`🔐 User logged in: ${user.email}`);
     res.json({ success: true, token, username: user.username || "Unknown" });

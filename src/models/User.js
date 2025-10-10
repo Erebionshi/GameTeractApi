@@ -23,10 +23,15 @@ const userSchema = new mongoose.Schema({
     {
       user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       addedAt: { type: Date, default: Date.now },
-      rating: { type: Number, min: 1, max: 5 },
     }
   ],
   incomingFriendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  raters: [
+    {
+      from: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      rating: { type: Number, min: 1, max: 5, required: true },
+    }
+  ],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
