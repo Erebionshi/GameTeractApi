@@ -256,11 +256,29 @@ router.post("/friend/rate/:userId", authenticateToken, async (req, res) => {
     const currentUser = await User.findById(req.user.id);
     const friendEntry = currentUser.friends.find(f => f.user.equals(req.params.userId));
     if (!friendEntry) return res.status(400).json({ success: false, message: "Not friends" });
+    if (friendEntry.rating) return res.status(400).json({ success: false, message: "Already rated this friend" });
 
     friendEntry.rating = rating;
     await currentUser.save();
 
-    console.log(`Rated friend ${req.params.userId} by ${currentUser.email} with ${rating}`);
+    // Update target's average rating
+    const targetId = req.params.userId;
+    const raters = await User.find({ "friends.user": targetId });
+    let totalRating = 0;
+    let count = 0;
+    raters.forEach((rater) => {
+      const entry = rater.friends.find(f => f.user.equals(targetId));
+      if (entry && entry.rating) {
+        totalRating += entry.rating;
+        count++;
+      }
+    });
+    const average = count > 0 ? totalRating / count : 5; // Default to 5 if no ratings
+    const targetUser = await User.findById(targetId);
+    targetUser.rating = average;
+    await targetUser.save();
+
+    console.log(`Rated friend ${targetId} by ${currentUser.email} with ${rating}. Updated target rating to ${average}`);
     res.json({ success: true, message: "Friend rated successfully" });
   } catch (err) {
     console.error("❌ Error rating friend:", err.message, err.stack);
