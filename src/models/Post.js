@@ -8,6 +8,7 @@ const postSchema = new mongoose.Schema({
   vibe: { type: String, enum: ["Casual", "Fun", "Competitive"], required: true },
   mic: { type: String, enum: ["Open Mic", "Close Mic"], required: true },
   partyCode: { type: String },
+  userRating: { type: Number, min: 1, max: 5, required: true }, // Added to store user's rating
   createdAt: { type: Date, default: Date.now },
 });
 

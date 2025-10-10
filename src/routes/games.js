@@ -196,7 +196,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// New route to create a post
+// Create a post
 router.post("/:gameId/posts", authenticateToken, async (req, res) => {
   try {
     const { gameId } = req.params;
@@ -214,7 +214,7 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
     }
 
     // Check if the user has game data
-    const user = await User.findById(req.user.id).select('games');
+    const user = await User.findById(req.user.id).select('games rating');
     if (!user.games.has(gameId)) {
       return res.status(400).json({ success: false, message: "You must save your game data (IGN and rank) before posting" });
     }
@@ -225,7 +225,7 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "Private code is required for this game" });
     }
 
-    // Create new post
+    // Create new post with userRating
     const post = new Post({
       userId: req.user.id,
       gameId,
@@ -234,10 +234,11 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       vibe,
       mic,
       partyCode: requiresPrivateCode ? partyCode : undefined,
+      userRating: user.rating, // Include user's rating
     });
 
     await post.save();
-    console.log(`🆕 New post created for game ${game.name} by user ${req.user.email}`);
+    console.log(`🆕 New post created for game ${game.name} by user ${req.user.email} with rating ${user.rating}`);
     res.json({ success: true, post });
   } catch (err) {
     console.error("❌ Error creating post:", err.message, err.stack);
@@ -245,6 +246,7 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
   }
 });
 
+// Fetch posts for a game
 router.get("/:gameId/posts", authenticateToken, async (req, res) => {
   try {
     const { gameId } = req.params;
@@ -257,7 +259,7 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
     const requiresPrivateCode = lowerName === "valorant" || lowerName.includes("csgo") || lowerName.includes("dota");
 
     // Populate userId with necessary fields
-    let posts = await Post.find({ gameId }).populate("userId", "username profilePic games friends");
+    let posts = await Post.find({ gameId }).populate("userId", "username profilePic games friends rating");
 
     posts = posts.filter(post => {
       if (!post.userId) {
@@ -286,8 +288,10 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
       if (requiresPrivateCode && !isFriend) {
         post.partyCode = undefined;
       }
-      // Use the actual username instead of IGN, or ensure IGN exists
+      // Use the actual username instead of IGN
       post.username = post.userId.username || post.userId.games[gameId]?.ign || 'Unknown';
+      // Include userRating from post document
+      post.userRating = post.userRating;
       delete post.userId.games;
       delete post.userId.friends;
       return post;
@@ -300,7 +304,7 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
   }
 });
 
-// In games.js (backend)
+// Delete a post
 router.delete("/:gameId/posts/:postId", authenticateToken, async (req, res) => {
   try {
     const { gameId, postId } = req.params;
@@ -319,4 +323,5 @@ router.delete("/:gameId/posts/:postId", authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 module.exports = router;
