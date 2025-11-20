@@ -8,6 +8,7 @@ const gameRoutes = require("./src/routes/games");
 const emailRoutes = require("./src/routes/email");
 const forumRoutes = require("./src/routes/forum");
 const { authenticateToken } = require("./src/middleware/auth");
+const appRatingRoutes = require("./src/routes/appRating");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,6 +25,7 @@ app.use("/users", userRoutes); // Fixed path
 app.use("/games", gameRoutes); // Fixed path
 app.use("/email", emailRoutes); // Fixed path
 app.use("/forum", forumRoutes); // Fixed path
+app.use("/app-rating", appRatingRoutes);
 
 // Protected endpoint to fetch PandaScore API key
 app.get("/api-key", authenticateToken, (req, res) => {
