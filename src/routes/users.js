@@ -145,7 +145,6 @@ router.post("/me/games", authenticateToken, async (req, res) => {
   }
 });
 
-// Send friend request
 router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
   try {
     const targetUser = await User.findById(req.params.userId);
@@ -155,17 +154,9 @@ router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) return res.status(404).json({ success: false, message: "Current user not found" });
 
-    // Check if already friends, handling invalid friend entries
-    const isAlreadyFriend = currentUser.friends.some(f => {
-      if (!f || !f.user) {
-        console.warn(`Invalid friend entry in user ${currentUser._id}:`, f);
-        return false;
-      }
-      return f.user.equals(targetUser._id);
-    });
+    const isAlreadyFriend = currentUser.friends.some(f => f.user && f.user.equals(targetUser._id));
     if (isAlreadyFriend) return res.status(400).json({ success: false, message: "Already friends" });
 
-    // Check if request already sent
     if (targetUser.incomingFriendRequests.some(id => id.equals(currentUser._id))) {
       return res.status(400).json({ success: false, message: "Request already sent" });
     }
@@ -173,10 +164,26 @@ router.post("/friend/request/:userId", authenticateToken, async (req, res) => {
     targetUser.incomingFriendRequests.push(currentUser._id);
     await targetUser.save();
 
-    console.log(`Friend request sent from ${currentUser.email} to ${targetUser.email}`);
+    // REAL-TIME NOTIFICATION
+    const io = req.app.get('io');
+    const onlineUsers = req.app.get('onlineUsers');
+    const targetSocketId = onlineUsers.get(targetUser._id.toString());
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("friendRequestReceived", {
+        from: {
+          _id: currentUser._id,
+          username: currentUser.username,
+          profilePic: currentUser.profilePic
+        },
+        message: `${currentUser.username} sent you a friend request!`
+      });
+    }
+
+    console.log(`Friend request sent from ${currentUser.username} → ${targetUser.username}`);
     res.json({ success: true, message: "Friend request sent" });
   } catch (err) {
-    console.error("❌ Error sending friend request:", err.message, err.stack);
+    console.error("Error sending friend request:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
