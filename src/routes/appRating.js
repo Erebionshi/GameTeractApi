@@ -2,10 +2,9 @@
 const express = require("express");
 const { authenticateToken } = require("../middleware/auth");
 const AppRating = require("../models/AppRating");
-const User = require("../models/User");
 const router = express.Router();
 
-// Submit or update app rating
+// POST - Submit or update app rating (protected)
 router.post("/", authenticateToken, async (req, res) => {
   try {
     const { rating, feedback } = req.body;
@@ -17,14 +16,12 @@ router.post("/", authenticateToken, async (req, res) => {
     const existing = await AppRating.findOne({ user: req.user.id });
 
     if (existing) {
-      // Update existing rating
       existing.rating = rating;
-      existing.feedback = feedback || existing.feedback;
+      existing.feedback = feedback?.trim() || existing.feedback;
       await existing.save();
-      return res.json({ success: true, message: "Thank you! Your rating has been updated", rating: existing });
+      return res.json({ success: true, message: "Your rating has been updated!", rating: existing });
     }
 
-    // Create new
     const appRating = new AppRating({
       user: req.user.id,
       rating,
@@ -42,35 +39,44 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 });
 
-// Get all app ratings (Admin only – you can add admin check later)
-router.get("/admin", authenticateToken, async (req, res) => {
+// GET /app-rating/all → Public feedback page (recommended: public)
+// Anyone can see reviews — builds trust!
+router.get("/all", async (req, res) => {
   try {
-    // Optional: Add admin check here later
-    // if (!req.user.isAdmin) return res.status(403).json(...)
+    const ratings = await AppRating.find({})
+      .populate("user", "username profilePic") // Only safe fields
+      .sort({ createdAt: -1 })
+      .lean();
 
-    const ratings = await AppRating.find()
-      .populate("user", "username email profilePic")
-      .sort({ createdAt: -1 });
+    const total = ratings.length;
+    const average = total > 0
+      ? Number((ratings.reduce((sum, r) => sum + r.rating, 0) / total).toFixed(2))
+      : 0;
 
-    const stats = {
-      total: ratings.length,
-      average: ratings.length > 0
-        ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(2)
-        : 0,
-      distribution: {
-        5: ratings.filter(r => r.rating === 5).length,
-        4: ratings.filter(r => r.rating === 4).length,
-        3: ratings.filter(r => r.rating === 3).length,
-        2: ratings.filter(r => r.rating === 2).length,
-        1: ratings.filter(r => r.rating === 1).length,
-      }
+    const distribution = {
+      5: ratings.filter(r => r.rating === 5).length,
+      4: ratings.filter(r => r.rating === 4).length,
+      3: ratings.filter(r => r.rating === 3).length,
+      2: ratings.filter(r => r.rating === 2).length,
+      1: ratings.filter(r => r.rating === 1).length,
     };
 
-    res.json({ success: true, ratings, stats });
+    res.json({
+      success: true,
+      ratings,                    // Full list of reviews with user info
+      stats: {
+        total,
+        average,
+        distribution
+      }
+    });
   } catch (err) {
-    console.error("Error fetching app ratings:", err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Error fetching public app ratings:", err);
+    res.status(500).json({ success: false, message: "Failed to load ratings" });
   }
 });
+
+// Optional: Keep admin-only route if you want a dashboard later
+// router.get("/admin", authenticateToken, async (req, res) => { ... });
 
 module.exports = router;
