@@ -10,79 +10,42 @@ const forumRoutes = require("./src/routes/forum");
 const { authenticateToken } = require("./src/middleware/auth");
 const appRatingRoutes = require("./src/routes/appRating");
 const { storage } = require("./src/config/gridfs");
-const multer = require('multer');
-const http = require('http');
-const server = http.createServer(app);
+const multer = require("multer");
+const http = require("http");
 const { Server } = require("socket.io");
 
-
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Adjust in production
-    methods: ["GET", "POST"]
-  }
-});
-
-// Store online users: userId -> socket.id
-const onlineUsers = new Map();
-
-io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
-  // User joins with their userId
-  socket.on("join", (userId) => {
-    onlineUsers.set(userId, socket.id);
-    console.log(`User ${userId} is online → ${socket.id}`);
-  });
-
-  socket.on("disconnect", () => {
-    for (let [userId, id] of onlineUsers.entries()) {
-      if (id === socket.id) {
-        onlineUsers.delete(userId);
-        console.log(`User ${userId} disconnected`);
-        break;
-      }
-    }
-  });
-});
-
-// Attach io to req so routes can use it
-app.set('io', io);
-app.set('onlineUsers', onlineUsers);
-
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT} with Socket.IO`);
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only images (jpeg, png, gif, webp) are allowed'));
-    }
-  }
-});
-
+// Create app and config port early
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middlewares
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true })); // ADD THIS LINE
+app.use(express.urlencoded({ extended: true }));
+
+// Multer / GridFS upload config
+const upload = multer({
+  storage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only images (jpeg, png, gif, webp) are allowed"));
+    }
+  },
+});
 
 // Connect to MongoDB
 connectDB();
 
-// Routes
-app.use("/auth", authRoutes); // Fixed path
-app.use("/users", userRoutes); // Fixed path
-app.use("/games", gameRoutes); // Fixed path
-app.use("/email", emailRoutes); // Fixed path
-app.use("/forum", forumRoutes); // Fixed path
+// Routes (attach after DB connect and middleware)
+app.use("/auth", authRoutes);
+app.use("/users", userRoutes);
+app.use("/games", gameRoutes);
+app.use("/email", emailRoutes);
+app.use("/forum", forumRoutes);
 app.use("/app-rating", appRatingRoutes);
 
 // Protected endpoint to fetch PandaScore API key
@@ -90,9 +53,11 @@ app.get("/api-key", authenticateToken, (req, res) => {
   try {
     const apiKey = process.env.PANDASCORE_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ success: false, message: "PandaScore API key not configured on server" });
+      return res
+        .status(500)
+        .json({ success: false, message: "PandaScore API key not configured on server" });
     }
-    console.log(`🔑 API key requested by user: ${req.user.email}`);
+    console.log(`🔑 API key requested by user: ${req.user?.email ?? "unknown"}`);
     res.json({ success: true, apiKey });
   } catch (err) {
     console.error("❌ Error fetching API key:", err.message);
@@ -100,7 +65,7 @@ app.get("/api-key", authenticateToken, (req, res) => {
   }
 });
 
-// Health check
+// Health check & root
 app.get("/health", (req, res) => {
   res.json({
     success: true,
@@ -110,7 +75,6 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Root response
 app.get("/", (req, res) => {
   res.send(`
     <html>
@@ -160,17 +124,17 @@ app.get("/", (req, res) => {
   `);
 });
 
-// Error handling middleware
+// Error handling middleware (after routes)
 app.use((err, req, res, next) => {
-  console.error("❌ Unhandled error:", err.stack);
+  console.error("❌ Unhandled error:", err.stack || err);
   res.status(500).json({
     success: false,
     message: "Something went wrong!",
-    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    error: process.env.NODE_ENV === "development" ? (err.message || err) : undefined,
   });
 });
 
-// 404 handler
+// 404 handler (after middleware)
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -179,7 +143,42 @@ app.use((req, res) => {
   });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`🌐 API available at http://localhost:${PORT}`);
+// Create HTTP server and attach Socket.IO
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*", // tighten in production
+    methods: ["GET", "POST"],
+  },
+});
+
+// Store online users: userId -> socket.id
+const onlineUsers = new Map();
+
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+
+  socket.on("join", (userId) => {
+    onlineUsers.set(userId, socket.id);
+    console.log(`User ${userId} is online → ${socket.id}`);
+  });
+
+  socket.on("disconnect", () => {
+    for (let [userId, id] of onlineUsers.entries()) {
+      if (id === socket.id) {
+        onlineUsers.delete(userId);
+        console.log(`User ${userId} disconnected`);
+        break;
+      }
+    }
+  });
+});
+
+// Attach io and onlineUsers to app so other modules can use them
+app.set("io", io);
+app.set("onlineUsers", onlineUsers);
+
+// Start server (use server.listen for Socket.IO)
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Server running on port ${PORT} with Socket.IO`);
 });
