@@ -1,31 +1,35 @@
-// src/config/gridfs.js
+// src/config/gridfs.js - SIMPLIFIED (DELETE OLD ONE)
 const mongoose = require('mongoose');
-const Grid = require('gridfs-stream');
-const { GridFsStorage } = require('multer-gridfs-storage');
 
-let gfs, gridfsBucket;
+let gridfsBucket;
 const conn = mongoose.connection;
 
 conn.once('open', () => {
   gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, {
     bucketName: 'uploads'
   });
-  gfs = Grid(conn.db, mongoose.mongo);
-  gfs.collection('uploads');
-  console.log('GridFS initialized');
+  console.log('GridFS Bucket initialized');
 });
 
-const storage = new GridFsStorage({
-  db: conn,
-  file: (req, file) => {
-    return new Promise((resolve, reject) => {
-      const filename = {
-        filename: `${Date.now()}_${file.originalname}`,
-        bucketName: 'uploads'
-      };
-      resolve(filename);
+const saveImageToGridFS = async (file) => {
+  if (!file?.buffer) return null;
+
+  const filename = `${Date.now()}_${file.originalname}`;
+  const uploadStream = gridfsBucket.openUploadStream(filename, {
+    contentType: file.mimetype,
+  });
+
+  return new Promise((resolve, reject) => {
+    uploadStream.end(file.buffer);
+    uploadStream.on('finish', () => {
+      resolve({
+        fileId: uploadStream.id.toString(),
+        filename: uploadStream.filename,
+        contentType: file.mimetype,
+      });
     });
-  }
-});
+    uploadStream.on('error', reject);
+  });
+};
 
-module.exports = { gfs, gridfsBucket, storage };
+module.exports = { gridfsBucket, saveImageToGridFS };

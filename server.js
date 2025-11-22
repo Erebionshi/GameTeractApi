@@ -9,8 +9,6 @@ const emailRoutes = require("./src/routes/email");
 const forumRoutes = require("./src/routes/forum");
 const { authenticateToken } = require("./src/middleware/auth");
 const appRatingRoutes = require("./src/routes/appRating");
-const { storage } = require("./src/config/gridfs");
-const multer = require("multer");
 const http = require("http");
 const { Server } = require("socket.io");
 
@@ -23,19 +21,6 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Multer / GridFS upload config
-const upload = multer({
-  storage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only images (jpeg, png, gif, webp) are allowed"));
-    }
-  },
-});
 
 // Connect to MongoDB
 connectDB();
