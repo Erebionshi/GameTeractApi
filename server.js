@@ -11,7 +11,48 @@ const { authenticateToken } = require("./src/middleware/auth");
 const appRatingRoutes = require("./src/routes/appRating");
 const { storage } = require("./src/config/gridfs");
 const multer = require('multer');
+const http = require('http');
+const server = http.createServer(app);
+const { Server } = require("socket.io");
 
+
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Adjust in production
+    methods: ["GET", "POST"]
+  }
+});
+
+// Store online users: userId -> socket.id
+const onlineUsers = new Map();
+
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+
+  // User joins with their userId
+  socket.on("join", (userId) => {
+    onlineUsers.set(userId, socket.id);
+    console.log(`User ${userId} is online → ${socket.id}`);
+  });
+
+  socket.on("disconnect", () => {
+    for (let [userId, id] of onlineUsers.entries()) {
+      if (id === socket.id) {
+        onlineUsers.delete(userId);
+        console.log(`User ${userId} disconnected`);
+        break;
+      }
+    }
+  });
+});
+
+// Attach io to req so routes can use it
+app.set('io', io);
+app.set('onlineUsers', onlineUsers);
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT} with Socket.IO`);
+});
 
 const upload = multer({
   storage,
