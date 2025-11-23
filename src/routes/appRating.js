@@ -1,4 +1,4 @@
-// src/routes/appRating.js
+
 const express = require("express");
 const { authenticateToken } = require("../middleware/auth");
 const AppRating = require("../models/AppRating");
@@ -39,12 +39,11 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 });
 
-// GET /app-rating/all → Public feedback page (recommended: public)
-// Anyone can see reviews — builds trust!
+
 router.get("/all", async (req, res) => {
   try {
     const ratings = await AppRating.find({})
-      .populate("user", "username profilePic") // Only safe fields
+      .populate("user", "username profilePic") 
       .sort({ createdAt: -1 })
       .lean();
 
@@ -63,7 +62,7 @@ router.get("/all", async (req, res) => {
 
     res.json({
       success: true,
-      ratings,                    // Full list of reviews with user info
+      ratings,                    
       stats: {
         total,
         average,
@@ -75,8 +74,5 @@ router.get("/all", async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to load ratings" });
   }
 });
-
-// Optional: Keep admin-only route if you want a dashboard later
-// router.get("/admin", authenticateToken, async (req, res) => { ... });
 
 module.exports = router;

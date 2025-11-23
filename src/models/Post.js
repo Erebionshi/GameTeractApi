@@ -1,4 +1,4 @@
-// models/Post.js
+
 const mongoose = require("mongoose");
 
 const postSchema = new mongoose.Schema({
@@ -33,7 +33,7 @@ const postSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 3600, // Auto delete after exactly 1 hour
+    expires: 3600,
   },
 });
 

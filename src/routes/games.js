@@ -234,7 +234,7 @@ router.post("/:gameId/posts", authenticateToken, async (req, res) => {
       vibe,
       mic,
       partyCode: requiresPrivateCode ? partyCode : undefined,
-      userRating: user.rating, // Include user's rating
+      userRating: user.rating, 
     });
 
     await post.save();
@@ -288,9 +288,9 @@ router.get("/:gameId/posts", authenticateToken, async (req, res) => {
       if (requiresPrivateCode && !isFriend) {
         post.partyCode = undefined;
       }
-      // Use the actual username instead of IGN
+
       post.username = post.userId.username || post.userId.games[gameId]?.ign || 'Unknown';
-      // Include userRating from post document
+
       post.userRating = post.userRating;
       delete post.userId.games;
       delete post.userId.friends;

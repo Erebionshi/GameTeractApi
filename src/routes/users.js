@@ -8,7 +8,7 @@ router.get("/", async (req, res) => {
   try {
     const users = await User.find(
       {},
-      "username email profilePic games violations banned banDuration banStartDate rating" // Added rating
+      "username email profilePic games violations banned banDuration banStartDate rating"
     );
     const usersWithDefaults = users.map((user) => ({
       _id: user._id,
@@ -34,9 +34,9 @@ router.get("/", async (req, res) => {
 router.get("/me", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
-      .select('_id email username profilePic friends incomingFriendRequests games rating') // Added rating
-      .populate('friends.user', '_id username profilePic games rating raters') // Added rating to populate
-      .populate('incomingFriendRequests', '_id username profilePic games rating'); // Added rating to populate
+      .select('_id email username profilePic friends incomingFriendRequests games rating') 
+      .populate('friends.user', '_id username profilePic games rating raters') 
+      .populate('incomingFriendRequests', '_id username profilePic games rating'); 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }

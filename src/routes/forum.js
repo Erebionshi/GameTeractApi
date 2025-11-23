@@ -1,4 +1,4 @@
-// src/routes/forum.js ← REPLACE ENTIRE FILE WITH THIS
+// src/routes/forum.js  ← REPLACE YOUR ENTIRE FILE WITH THIS ONE
 
 const express = require("express");
 const { authenticateToken } = require("../middleware/auth");
@@ -9,59 +9,36 @@ const mongoose = require("mongoose");
 
 const router = express.Router();
 
-// === MULTER (for mobile FormData uploads) ===
+// Multer in memory – fixes all Authorization header issues
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
-    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error("Invalid image type"));
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
+    allowedTypes.includes(file.mimetype) ? cb(null, true) : cb(new Error("Invalid image type"));
   },
 });
 
-// === GRIDFS BUCKET (initialized once) ===
-let gfs;
-mongoose.connection.once("open", () => {
-  gfs = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "uploads" });
-  console.log("GridFS bucket ready");
-});
+// Save image to GridFS
+const saveImageToGridFS = async (file) => {
+  if (!file?.buffer) return null;
 
-// === SAVE IMAGE (from buffer or base64) ===
-const saveImage = async (fileOrBase64) => {
-  if (!fileOrBase64) return null;
-
-  let buffer, contentType, filename;
-
-  if (typeof fileOrBase64 === "string") {
-    // Base64 from web
-    const matches = fileOrBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) throw new Error("Invalid base64");
-    contentType = matches[1];
-    buffer = Buffer.from(matches[2], "base64");
-    filename = `web_${Date.now()}.jpg`;
-  } else {
-    // Buffer from mobile (multer)
-    buffer = fileOrBase64.buffer;
-    contentType = fileOrBase64.mimetype;
-    filename = `${Date.now()}_${fileOrBase64.originalname}`;
-  }
-
-  const uploadStream = gfs.openUploadStream(filename, { contentType });
+  const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "uploads" });
+  const filename = `${Date.now()}_${file.originalname}`;
+  const uploadStream = bucket.openUploadStream(filename, { contentType: file.mimetype });
 
   return new Promise((resolve, reject) => {
-    uploadStream.end(buffer);
-    uploadStream.on("finish", () => {
-      resolve({
-        fileId: uploadStream.id.toString(),
-        filename: uploadStream.filename,
-        contentType,
-      });
-    });
+    uploadStream.end(file.buffer);
+    uploadStream.on("finish", () => resolve({
+      fileId: uploadStream.id.toString(),
+      filename: uploadStream.filename,
+      contentType: file.mimetype,
+    }));
     uploadStream.on("error", reject);
   });
 };
 
-// === GET ALL POSTS ===
+// GET all posts
 router.get("/:game", async (req, res) => {
   try {
     const game = decodeURIComponent(req.params.game);
@@ -78,34 +55,18 @@ router.get("/:game", async (req, res) => {
   }
 });
 
-// === CREATE POST - MOBILE (FormData) ===
+// CREATE POST
 router.post("/", upload.single("image"), authenticateToken, async (req, res) => {
-  await handleCreatePost(req, res);
-});
-
-// === CREATE POST - WEB (base64 fallback) ===
-router.post("/base64", authenticateToken, async (req, res) => {
-  req.file = null; // pretend no file
-  req.body.image = req.body.imageBase64; // map base64 → image
-  await handleCreatePost(req, res);
-});
-
-// Unified handler
-const handleCreatePost = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (user.banned)
-      return res.status(403).json({ message: "You are banned", banEndDate: user.banEndDate });
+    if (user.banned) return res.status(403).json({ message: "You are banned", banEndDate: user.banEndDate });
 
-    const { game, subject, text, imageBase64 } = req.body;
+    const { game, subject, text } = req.body;
     if (!game || !subject?.trim() || !text?.trim())
       return res.status(400).json({ message: "Missing required fields" });
 
-    let image = null;
-    if (req.file || imageBase64) {
-      image = await saveImage(req.file || imageBase64);
-    }
+    const image = req.file ? await saveImageToGridFS(req.file) : null;
 
     const post = new ForumPost({
       game,
@@ -116,7 +77,6 @@ const handleCreatePost = async (req, res) => {
     });
 
     await post.save();
-
     const populated = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
@@ -127,35 +87,21 @@ const handleCreatePost = async (req, res) => {
     console.error("Create post error:", err);
     res.status(500).json({ message: err.message || "Server error" });
   }
-};
+});
 
-// === ADD COMMENT - MOBILE ===
+// ADD COMMENT
 router.post("/:id/comment", upload.single("image"), authenticateToken, async (req, res) => {
-  await handleAddComment(req, res);
-});
-
-// === ADD COMMENT - WEB (base64) ===
-router.post("/:id/comment/base64", authenticateToken, async (req, res) => {
-  req.file = null;
-  req.body.imageBase64 = req.body.imageBase64;
-  await handleAddComment(req, res);
-});
-
-const handleAddComment = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user || user.banned) return res.status(403).json({ message: "Forbidden" });
 
-    const { text, imageBase64 } = req.body;
+    const { text } = req.body;
     if (!text?.trim()) return res.status(400).json({ message: "Text required" });
 
     const post = await ForumPost.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    let image = null;
-    if (req.file || imageBase64) {
-      image = await saveImage(req.file || imageBase64);
-    }
+    const image = req.file ? await saveImageToGridFS(req.file) : null;
 
     post.comments.push({ userId: req.user.id, text: text.trim(), image });
     await post.save();
@@ -170,26 +116,15 @@ const handleAddComment = async (req, res) => {
     console.error(err);
     res.status(500).json({ message: "Server error" });
   }
-};
+});
 
-// === ADD REPLY - MOBILE ===
+// ADD REPLY
 router.post("/:id/comment/:commentId/reply", upload.single("image"), authenticateToken, async (req, res) => {
-  await handleAddReply(req, res);
-});
-
-// === ADD REPLY - WEB (base64) ===
-router.post("/:id/comment/:commentId/reply/base64", authenticateToken, async (req, res) => {
-  req.file = null;
-  req.body.imageBase64 = req.body.imageBase64;
-  await handleAddReply(req, res);
-});
-
-const handleAddReply = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user || user.banned) return res.status(403).json({ message: "Forbidden" });
 
-    const { text, imageBase64 } = req.body;
+    const { text } = req.body;
     if (!text?.trim()) return res.status(400).json({ message: "Text required" });
 
     const post = await ForumPost.findById(req.params.id);
@@ -198,10 +133,7 @@ const handleAddReply = async (req, res) => {
     const comment = post.comments.id(req.params.commentId);
     if (!comment) return res.status(404).json({ message: "Comment not found" });
 
-    let image = null;
-    if (req.file || imageBase64) {
-      image = await saveImage(req.file || imageBase64);
-    }
+    const image = req.file ? await saveImageToGridFS(req.file) : null;
 
     comment.replies.push({ userId: req.user.id, text: text.trim(), image });
     await post.save();
@@ -216,27 +148,99 @@ const handleAddReply = async (req, res) => {
     console.error(err);
     res.status(500).json({ message: "Server error" });
   }
-};
+});
 
-// === DELETE ROUTES (unchanged - keep as-is) ===
-router.delete("/post/:postId", authenticateToken, async (req, res) => { /* your existing code */ });
-router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req, res) => { /* your existing code */ });
-router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateToken, async (req, res) => { /* your existing code */ });
+// DELETE OWN POST
+router.delete("/post/:postId", authenticateToken, async (req, res) => {
+  try {
+    const post = await ForumPost.findById(req.params.postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
 
-// === SERVE IMAGE ===
+    if (post.userId.toString() !== req.user.id) {
+      return res.status(403).json({ message: "You can only delete your own posts" });
+    }
+
+    await ForumPost.findByIdAndDelete(req.params.postId);
+    res.json({ message: "Post deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// DELETE OWN COMMENT
+router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req, res) => {
+  try {
+    const post = await ForumPost.findById(req.params.postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    const comment = post.comments.id(req.params.commentId);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+
+    if (comment.userId.toString() !== req.user.id) {
+      return res.status(403).json({ message: "You can only delete your own comments" });
+    }
+
+    comment.deleteOne();
+    await post.save();
+
+    const updated = await post.populate([
+      { path: "userId", select: "username profilePic" },
+      { path: "comments.userId", select: "username profilePic" },
+      { path: "comments.replies.userId", select: "username profilePic" },
+    ]);
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// DELETE OWN REPLY
+router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateToken, async (req, res) => {
+  try {
+    const post = await ForumPost.findById(req.params.postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    const comment = post.comments.id(req.params.commentId);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+
+    const reply = comment.replies.id(req.params.replyId);
+    if (!reply) return res.status(404).json({ message: "Reply not found" });
+
+    if (reply.userId.toString() !== req.user.id) {
+      return res.status(403).json({ message: "You can only delete your own replies" });
+    }
+
+    reply.deleteOne();
+    await post.save();
+
+    const updated = await post.populate([
+      { path: "userId", select: "username profilePic" },
+      { path: "comments.userId", select: "username profilePic" },
+      { path: "comments.replies.userId", select: "username profilePic" },
+    ]);
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// SERVE IMAGE
 router.get("/image/:fileId", async (req, res) => {
   try {
     const fileId = new mongoose.Types.ObjectId(req.params.fileId);
-    const file = await gfs.find({ _id: fileId }).next();
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "uploads" });
+
+    const file = await bucket.find({ _id: fileId }).next();
     if (!file) return res.status(404).json({ message: "Image not found" });
 
-    res.set("Content-Type", file.contentType || "image/jpeg");
+    res.set("Content-Type", file.contentType);
     res.set("Cache-Control", "public, max-age=31536000");
 
-    const stream = gfs.openDownloadStream(fileId);
+    const stream = bucket.openDownloadStream(fileId);
     stream.pipe(res);
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });

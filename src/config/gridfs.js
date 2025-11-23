@@ -1,4 +1,4 @@
-// src/config/gridfs.js - SIMPLIFIED (DELETE OLD ONE)
+
 const mongoose = require('mongoose');
 
 let gridfsBucket;

@@ -1,4 +1,4 @@
-// src/models/AppRating.js
+
 const mongoose = require("mongoose");
 
 const appRatingSchema = new mongoose.Schema({
@@ -24,7 +24,7 @@ const appRatingSchema = new mongoose.Schema({
   },
 });
 
-// Prevent duplicate ratings from same user
+
 appRatingSchema.index({ user: 1 }, { unique: true });
 
 module.exports = mongoose.model("AppRating", appRatingSchema);

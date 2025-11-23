@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { sendEmail } = require("../utils/nodemailer"); // Adjust path based on structure
+const { sendEmail } = require("../utils/nodemailer"); 
 
 router.post("/send-email", async (req, res) => {
   const { email, message } = req.body;
