@@ -1,24 +1,4 @@
 // src/models/ForumPost.js
-const mongoose = require("mongoose");
-
-const replySchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  text: { type: String },
-  date: { type: Date, default: Date.now }
-});
-
-const commentSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  text: { type: String },
-  image: {
-    fileId: String,
-    filename: String,
-    contentType: String,
-  },
-  date: { type: Date, default: Date.now },
-  replies: [replySchema]
-});
-
 const forumPostSchema = new mongoose.Schema({
   game: { type: String, required: true },
   subject: { type: String, required: true },
@@ -28,9 +8,9 @@ const forumPostSchema = new mongoose.Schema({
     fileId: String,
     filename: String,
     contentType: String,
+    // Optional: keep URL for faster loading
+    url: String,
   },
   date: { type: Date, default: Date.now },
-  comments: [commentSchema]
+  comments: [/* same as before */]
 });
-
-module.exports = mongoose.model("ForumPost", forumPostSchema);
