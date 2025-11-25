@@ -1,4 +1,4 @@
-// src/routes/forum.js → REPLACE ALL IMAGE LOGIC
+// src/routes/forum.js — REPLACE ENTIRE FILE WITH THIS
 
 const express = require("express");
 const { authenticateToken } = require("../middleware/auth");
@@ -6,7 +6,7 @@ const ForumPost = require("../models/ForumPost");
 const User = require("../models/User");
 const router = express.Router();
 
-// GET posts
+// GET all posts for a game
 router.get("/:game", async (req, res) => {
   try {
     const game = decodeURIComponent(req.params.game);
@@ -18,34 +18,45 @@ router.get("/:game", async (req, res) => {
 
     res.json(posts);
   } catch (err) {
-    console.error(err);
+    console.error("GET posts error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// CREATE POST
+// CREATE POST — ONLY JSON + BASE64
 router.post("/", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (user.banned) return res.status(403).json({ message: "You are banned", banEndDate: user.banEndDate });
+    if (user.banned) {
+      return res.status(403).json({
+        message: "You are banned from posting",
+        banEndDate: user.banStartDate
+          ? new Date(new Date(user.banStartDate).getTime() + user.banDuration * 24 * 60 * 60 * 1000)
+          : null,
+      });
+    }
 
     const { game, subject, text, image } = req.body; // image = base64 string
+
+    if (!game || !subject?.trim() || !text?.trim()) {
+      return res.status(400).json({ message: "Game, subject, and text are required" });
+    }
 
     const post = new ForumPost({
       game,
       subject: subject.trim(),
       text: text.trim(),
       userId: req.user.id,
-      image, // ← just save the base64 string!
+      image: image || null, // ← base64 string or null
     });
 
     await post.save();
-    const populated = await post
-      .populate("userId", "username profilePic")
-      .populate("comments.userId", "username profilePic");
 
-    res.status(201).json(populated);
+    const populatedPost = await ForumPost.findById(post._id)
+      .populate("userId", "username profilePic");
+
+    res.status(201).json(populatedPost);
   } catch (err) {
     console.error("Create post error:", err);
     res.status(500).json({ message: err.message || "Server error" });
@@ -67,10 +78,11 @@ router.post("/:id/comment", authenticateToken, async (req, res) => {
     post.comments.push({
       userId: req.user.id,
       text: text.trim(),
-      image, // ← base64 string
+      image: image || null,
     });
 
     await post.save();
+
     const updated = await post
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
@@ -78,7 +90,7 @@ router.post("/:id/comment", authenticateToken, async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    console.error(err);
+    console.error("Add comment error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -101,10 +113,11 @@ router.post("/:id/comment/:commentId/reply", authenticateToken, async (req, res)
     comment.replies.push({
       userId: req.user.id,
       text: text.trim(),
-      image,
+      image: image || null,
     });
 
     await post.save();
+
     const updated = await post
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
@@ -112,14 +125,76 @@ router.post("/:id/comment/:commentId/reply", authenticateToken, async (req, res)
 
     res.json(updated);
   } catch (err) {
-    console.error(err);
+    console.error("Add reply error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// DELETE routes stay the same (no change needed)
-router.delete("/post/:postId", authenticateToken, async (req, res) => { /* ... same as before */ });
-router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req, res) => { /* ... */ });
-router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateToken, async (req, res) => { /* ... */ });
+// DELETE POST
+router.delete("/post/:postId", authenticateToken, async (req, res) => {
+  try {
+    const post = await ForumPost.findById(req.params.postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+    if (post.userId.toString() !== req.user.id) return res.status(403).json({ message: "Not authorized" });
+
+    await ForumPost.deleteOne({ _id: req.params.postId });
+    res.json({ message: "Post deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// DELETE COMMENT
+router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req, res) => {
+  try {
+    const post = await ForumPost.findById(req.params.postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    const comment = post.comments.id(req.params.commentId);
+    if (!comment || comment.userId.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    comment.remove();
+    await post.save();
+
+    const updated = await post
+      .populate("userId", "username profilePic")
+      .populate("comments.userId", "username profilePic")
+      .populate("comments.replies.userId", "username profilePic");
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// DELETE REPLY
+router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateToken, async (req, res) => {
+  try {
+    const post = await ForumPost.findById(req.params.postId);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    const comment = post.comments.id(req.params.commentId);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+
+    const reply = comment.replies.id(req.params.replyId);
+    if (!reply || reply.userId.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    reply.remove();
+    await post.save();
+
+    const updated = await post
+      .populate("userId", "username profilePic")
+      .populate("comments.userId", "username profilePic")
+      .populate("comments.replies.userId", "username profilePic");
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 module.exports = router;
