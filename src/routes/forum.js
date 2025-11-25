@@ -245,4 +245,140 @@ router.get("/image/:fileId", async (req, res) => {
   }
 });
 
+// ==================== BASE64 ENDPOINTS FOR WEB ====================
+
+// CREATE POST WITH BASE64 (WEB)
+router.post("/base64", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (user.banned) return res.status(403).json({ message: "You are banned", banEndDate: user.banEndDate });
+
+    const { game, subject, text, imageBase64 } = req.body;
+    if (!game || !subject?.trim() || !text?.trim())
+      return res.status(400).json({ message: "Missing required fields" });
+
+    let image = null;
+    if (imageBase64) {
+      const matches = imageBase64.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      if (!matches || matches.length !== 3) {
+        return res.status(400).json({ message: "Invalid base64 image" });
+      }
+
+      const mimeType = matches[1];
+      const buffer = Buffer.from(matches[2], "base64");
+
+      const file = {
+        buffer,
+        originalname: `web_upload_${Date.now()}.jpg`,
+        mimetype: mimeType,
+      };
+
+      image = await saveImageToGridFS(file);
+    }
+
+    const post = new ForumPost({
+      game,
+      subject: subject.trim(),
+      text: text.trim(),
+      userId: req.user.id,
+      image,
+    });
+
+    await post.save();
+    const populated = await ForumPost.findById(post._id)
+      .populate("userId", "username profilePic");
+
+    res.status(201).json(populated);
+  } catch (err) {
+    console.error("Base64 post error:", err);
+    res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+// ADD COMMENT WITH BASE64 (WEB)
+router.post("/:id/comment/base64", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.banned) return res.status(403).json({ message: "Forbidden" });
+
+    const { text, imageBase64 } = req.body;
+    if (!text?.trim()) return res.status(400).json({ message: "Text required" });
+
+    const post = await ForumPost.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    let image = null;
+    if (imageBase64) {
+      const matches = imageBase64.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      if (!matches) return res.status(400).json({ message: "Invalid image" });
+
+      const buffer = Buffer.from(matches[2], "base64");
+      const file = {
+        buffer,
+        originalname: `comment_${Date.now()}`,
+        mimetype: matches[1],
+      };
+      image = await saveImageToGridFS(file);
+    }
+
+    post.comments.push({ userId: req.user.id, text: text.trim(), image });
+    await post.save();
+
+    const updated = await post
+      .populate("userId", "username profilePic")
+      .populate("comments.userId", "username profilePic")
+      .populate("comments.replies.userId", "username profilePic");
+
+    res.json(updated);
+  } catch (err) {
+    console.error("Base64 comment error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ADD REPLY WITH BASE64 (WEB)
+router.post("/post/:id/comment/:commentId/reply/base64", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.banned) return res.status(403).json({ message: "Forbidden" });
+
+    const { text, imageBase64 } = req.body;
+    if (!text?.trim()) return res.status(400).json({ message: "Text required" });
+
+    const post = await ForumPost.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    const comment = post.comments.id(req.params.commentId);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+
+    let image = null;
+    if (imageBase64) {
+      const matches = imageBase64.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      if (!matches) return res.status(400).json({ message: "Invalid image" });
+
+      const buffer = Buffer.from(matches[2], "base64");
+      const file = {
+        buffer,
+        originalname: `reply_${Date.now()}`,
+        mimetype: matches[1],
+      };
+      image = await saveImageToGridFS(file);
+    }
+
+    comment.replies.push({ userId: req.user.id, text: text.trim(), image });
+    await post.save();
+
+    const updated = await post
+      .populate("userId", "username profilePic")
+      .populate("comments.userId", "username profilePic")
+      .populate("comments.replies.userId", "username profilePic");
+
+    res.json(updated);
+  } catch (err) {
+    console.error("Base64 reply error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 module.exports = router;
