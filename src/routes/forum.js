@@ -63,7 +63,7 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 });
 
-// ADD COMMENT
+// ADD COMMENT - FIXED
 router.post("/:id/comment", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -79,23 +79,25 @@ router.post("/:id/comment", authenticateToken, async (req, res) => {
       userId: req.user.id,
       text: text.trim(),
       image: image || null,
+      date: Date.now(),
     });
 
     await post.save();
 
-    const updated = await post
+    // Re-fetch with full population
+    const updatedPost = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
       .populate("comments.replies.userId", "username profilePic");
 
-    res.json(updated);
+    res.json(updatedPost);
   } catch (err) {
     console.error("Add comment error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// ADD REPLY
+// ADD REPLY - FIXED
 router.post("/:id/comment/:commentId/reply", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -114,16 +116,18 @@ router.post("/:id/comment/:commentId/reply", authenticateToken, async (req, res)
       userId: req.user.id,
       text: text.trim(),
       image: image || null,
+      date: Date.now(),
     });
 
     await post.save();
 
-    const updated = await post
+    // Re-fetch fully populated
+    const updatedPost = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
       .populate("comments.replies.userId", "username profilePic");
 
-    res.json(updated);
+    res.json(updatedPost);
   } catch (err) {
     console.error("Add reply error:", err);
     res.status(500).json({ message: "Server error" });
@@ -144,7 +148,7 @@ router.delete("/post/:postId", authenticateToken, async (req, res) => {
   }
 });
 
-// DELETE COMMENT
+// DELETE COMMENT - FIXED
 router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req, res) => {
   try {
     const post = await ForumPost.findById(req.params.postId);
@@ -158,41 +162,49 @@ router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req,
     comment.remove();
     await post.save();
 
-    const updated = await post
+    // Re-fetch populated version
+    const updatedPost = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
       .populate("comments.replies.userId", "username profilePic");
 
-    res.json(updated);
+    res.json(updatedPost);
   } catch (err) {
+    console.error("Delete comment error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// DELETE REPLY
+
+// DELETE REPLY - FIXED (this is the one you asked for)
 router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateToken, async (req, res) => {
   try {
-    const post = await ForumPost.findById(req.params.postId);
+    const { postId, commentId, replyId } = req.params;
+
+    const post = await ForumPost.findById(postId);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    const comment = post.comments.id(req.params.commentId);
+    const comment = post.comments.id(commentId);
     if (!comment) return res.status(404).json({ message: "Comment not found" });
 
-    const reply = comment.replies.id(req.params.replyId);
-    if (!reply || reply.userId.toString() !== req.user.id) {
+    const reply = comment.replies.id(replyId);
+    if (!reply) return res.status(404).json({ message: "Reply not found" });
+
+    if (reply.userId.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
     reply.remove();
     await post.save();
 
-    const updated = await post
+    const updatedPost = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
       .populate("comments.replies.userId", "username profilePic");
 
-    res.json(updated);
+    res.json(updatedPost);
   } catch (err) {
+    console.error("Delete reply error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
