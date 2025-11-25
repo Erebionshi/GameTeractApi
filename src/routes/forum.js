@@ -148,21 +148,28 @@ router.delete("/post/:postId", authenticateToken, async (req, res) => {
   }
 });
 
-// DELETE COMMENT - FIXED
+// DELETE COMMENT - FIXED (Mongoose 6+)
 router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req, res) => {
   try {
-    const post = await ForumPost.findById(req.params.postId);
+    const { postId, commentId } = req.params;
+
+    const post = await ForumPost.findById(postId);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    const comment = post.comments.id(req.params.commentId);
-    if (!comment || comment.userId.toString() !== req.user.id) {
+    const comment = post.comments.id(commentId);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+
+    if (comment.userId.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    comment.remove();
+    // CORRECT WAY: Use .pull() or .deleteOne()
+    post.comments.pull(commentId);  // This removes the comment by _id
+    // OR: post.comments.id(commentId).deleteOne();
+
     await post.save();
 
-    // Re-fetch populated version
+    // Re-fetch with population
     const updatedPost = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
@@ -175,8 +182,7 @@ router.delete("/post/:postId/comment/:commentId", authenticateToken, async (req,
   }
 });
 
-
-// DELETE REPLY - FIXED (this is the one you asked for)
+// DELETE REPLY - FIXED (Mongoose 6+)
 router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateToken, async (req, res) => {
   try {
     const { postId, commentId, replyId } = req.params;
@@ -194,9 +200,13 @@ router.delete("/post/:postId/comment/:commentId/reply/:replyId", authenticateTok
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    reply.remove();
+    // CORRECT WAY: Remove reply
+    comment.replies.pull(replyId);
+    // OR: comment.replies.id(replyId).deleteOne();
+
     await post.save();
 
+    // Re-fetch populated post
     const updatedPost = await ForumPost.findById(post._id)
       .populate("userId", "username profilePic")
       .populate("comments.userId", "username profilePic")
