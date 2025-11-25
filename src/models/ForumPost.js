@@ -1,36 +1,30 @@
 
 const mongoose = require("mongoose");
 
-const replySchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  text: { type: String },
-  date: { type: Date, default: Date.now }
-});
-
-const commentSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  text: { type: String },
-  image: {
-    fileId: String,
-    filename: String,
-    contentType: String,
-  },
-  date: { type: Date, default: Date.now },
-  replies: [replySchema]
-});
-
+// models/ForumPost.js
 const forumPostSchema = new mongoose.Schema({
   game: { type: String, required: true },
   subject: { type: String, required: true },
   text: { type: String, required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  image: {
-    fileId: String,
-    filename: String,
-    contentType: String,
-  },
+  image: { type: String }, // ← Now just a base64 string or URL
   date: { type: Date, default: Date.now },
-  comments: [commentSchema]
+  comments: [
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      text: { type: String },
+      image: { type: String }, // ← base64 string
+      date: { type: Date, default: Date.now },
+      replies: [
+        {
+          userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+          text: { type: String },
+          image: { type: String }, // ← base64 string
+          date: { type: Date, default: Date.now },
+        },
+      ],
+    },
+  ],
 });
 
 module.exports = mongoose.model("ForumPost", forumPostSchema);
